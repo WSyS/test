@@ -1,14 +1,5 @@
 /*
- Copyright (C) 2026
-
- Simple WaterStar OMS/WMBus driver.
- Based on stripped IZAR RC driver.
-
- This version:
- - ONLY supports WaterStar meters
- - DOES NOT use Diehl/PRIOS decoding
- - DOES NOT use LFSR decryption
- - Parses standard OMS DV entries directly
+ Simple WaterStar / Brummerhoop OMS driver
 */
 
 #include "meters_common_implementation.h"
@@ -44,11 +35,10 @@ static bool ok = registerDriver([](DriverInfo &di)
     di.addLinkMode(LinkMode::C1);
 
     /*
-      IMPORTANT:
-      Replace MANUFACTURER_WST with the correct
-      manufacturer enum if needed.
+      Use existing manufacturer enum from your framework.
+      Replace later if needed.
     */
-    di.addDetection(MANUFACTURER_WST, 0x07, -1);
+    di.addDetection(MANUFACTURER_WFT, 0x07, -1);
 
     di.usesProcessContent();
 
@@ -61,7 +51,7 @@ static bool ok = registerDriver([](DriverInfo &di)
 Driver::Driver(MeterInfo &mi, DriverInfo &di)
     : MeterCommonImplementation(mi, di)
 {
-    ESP_LOGI("APP", "(waterstar) Driver loaded");
+    ESP_LOGI("APP", "(brummerhoop) Driver loaded");
 
     addNumericField(
         "total",
@@ -83,7 +73,7 @@ bool Driver::handleTelegram(AboutTelegram &about,
                             Telegram *out_analyzed)
 {
     ESP_LOGI("APP",
-             "(waterstar) telegram received len=%d",
+             "(brummerhoop) telegram len=%d",
              (int)input_frame.size());
 
     return MeterCommonImplementation::handleTelegram(
@@ -97,79 +87,71 @@ bool Driver::handleTelegram(AboutTelegram &about,
 
 void Driver::processContent(Telegram *t)
 {
-    ESP_LOGI("APP", "(waterstar) processContent ENTER");
+    ESP_LOGI("APP", "(brummerhoop) processContent ENTER");
 
     if (t == NULL)
     {
-        ESP_LOGW("APP", "(waterstar) telegram NULL");
+        ESP_LOGW("APP", "(brummerhoop) telegram NULL");
         return;
     }
 
     /*
-      Dump DV entries for debugging.
-      This helps identify which key contains
-      the total water consumption.
+      Debug DV entries
     */
     for (auto &dv : t->dv_entries)
     {
         ESP_LOGI("APP",
-                 "(waterstar) DV key=%s value=%s",
-                 dv.second.key.c_str(),
-                 dv.second.value.c_str());
+                 "(brummerhoop) DV key=%s",
+                 dv.first.c_str());
     }
 
     /*
-      Standard OMS water volume extraction.
-
-      Common VIF:
-      0413 = Volume (liters)
-
-      Adjust if your meter uses another key.
+      Extract total volume
     */
-    double total_m3 = 0.0;
+    double total = 0.0;
+    int offset = 0;
 
-    bool ok = extractDVdouble(
+    bool found = extractDVdouble(
         &t->dv_entries,
         "0413",
-        &total_m3);
+        &offset,
+        &total);
 
-    if (ok)
+    if (found)
     {
         /*
-          Some meters report liters.
-          Convert to m³ if needed.
+          Convert liters -> m3 if required
         */
-
-        if (total_m3 > 100000)
+        if (total > 100000)
         {
-            total_m3 /= 1000.0;
+            total = total / 1000.0;
         }
 
         setNumericValue(
             "total",
             Unit::M3,
-            total_m3);
+            total);
 
         ESP_LOGI("APP",
-                 "(waterstar) total_m3=%.3f",
-                 total_m3);
+                 "(brummerhoop) total_m3=%.3f",
+                 total);
     }
     else
     {
         ESP_LOGW("APP",
-                 "(waterstar) failed to extract total");
+                 "(brummerhoop) no volume found");
     }
 
     /*
-      Extract meter ID from address.
+      Meter ID
     */
     if (!t->addresses.empty())
     {
-        std::string id = t->addresses.back().id();
+        std::string id = t->addresses.back().id;
         setStringValue("meter_id", id);
 
         ESP_LOGI("APP",
-                 "(waterstar) meter_id=%s",
+                 "(brummerhoop) meter_id=%s",
                  id.c_str());
     }
 }
