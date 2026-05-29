@@ -1,5 +1,5 @@
 /*
- WaterStarM driver
+ WaterStarM minimal driver
 */
 
 #include "meters_common_implementation.h"
@@ -11,8 +11,6 @@ namespace
 struct Driver : public virtual MeterCommonImplementation
 {
     Driver(MeterInfo &mi, DriverInfo &di);
-
-    void processContent(Telegram *t) override;
 };
 
 static bool ok = registerDriver([](DriverInfo &di)
@@ -29,8 +27,6 @@ static bool ok = registerDriver([](DriverInfo &di)
 
     di.addDetection(MANUFACTURER_WFT, 0x07, -1);
 
-    di.usesProcessContent();
-
     di.setConstructor([](MeterInfo &mi, DriverInfo &di)
     {
         return std::shared_ptr<Meter>(new Driver(mi, di));
@@ -40,44 +36,33 @@ static bool ok = registerDriver([](DriverInfo &di)
 Driver::Driver(MeterInfo &mi, DriverInfo &di)
     : MeterCommonImplementation(mi, di)
 {
-    addNumericField(
+    addNumericFieldWithExtractor(
         "total",
-        Quantity::Volume,
+        "The total water consumption",
         DEFAULT_PRINT_PROPERTIES,
-        "Total");
-}
+        Quantity::Volume,
+        VifScaling::Auto,
+        {
+            {
+                DIFVIFKey("0413"),
+                StorageNr(0),
+                TariffNr(0),
+                SubUnitNr(0)
+            }
+        });
 
-void Driver::processContent(Telegram *t)
-{
-    if (t == NULL)
-        return;
-
-    /*
-      Current total volume:
-      DIF/VIF 0413
-      storage=0
-    */
-
-    double total_m3 = 0.0;
-    int offset = 0;
-
-    bool ok = extractDVdouble(
-        &t->dv_entries,
-        "0413",
-        &offset,
-        &total_m3);
-
-    if (ok)
-    {
-        setNumericValue(
-            "total",
-            Unit::M3,
-            total_m3);
-
-        ESP_LOGI("APP",
-                 "(waterstarm) total_m3=%.3f",
-                 total_m3);
-    }
+    addStringFieldWithExtractor(
+        "meter_datetime",
+        "Meter datetime",
+        DEFAULT_PRINT_PROPERTIES,
+        {
+            {
+                DIFVIFKey("046D"),
+                StorageNr(0),
+                TariffNr(0),
+                SubUnitNr(0)
+            }
+        });
 }
 
 } // namespace
