@@ -33,7 +33,7 @@ struct Driver : public virtual MeterCommonImplementation
 
 static bool ok = registerDriver([](DriverInfo &di)
 {
-    di.setName("waterstar");
+    di.setName("brummerhoop");
 
     di.setDefaultFields(
         "name,id,total_m3,timestamp");
