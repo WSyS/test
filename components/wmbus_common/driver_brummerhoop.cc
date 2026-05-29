@@ -11,7 +11,7 @@ struct Driver : public virtual MeterCommonImplementation
 
 static bool ok = registerDriver([](DriverInfo &di)
 {
-    di.setName("brummerhoop");
+    //di.setName("brummerhoop");
 
     di.setMeterType(MeterType::WaterMeter);
 
