@@ -13,14 +13,12 @@ static bool ok = registerDriver([](DriverInfo &di)
 {
     di.setName("brummerhoop");
 
-    di.setDefaultFields(
-        "name,id,total_m3,timestamp");
-
     di.setMeterType(MeterType::WaterMeter);
 
     di.addLinkMode(LinkMode::T1);
     di.addLinkMode(LinkMode::C1);
 
+    // Adjust manufacturer if needed
     di.addDetection(MANUFACTURER_WFT, 0x07, -1);
 
     di.setConstructor([](MeterInfo &mi, DriverInfo &di)
@@ -32,6 +30,8 @@ static bool ok = registerDriver([](DriverInfo &di)
 Driver::Driver(MeterInfo &mi, DriverInfo &di)
     : MeterCommonImplementation(mi, di)
 {
+    ESP_LOGE("APP",
+             "**************** WATERSTARM DRIVER LOADED ****************");
 }
 
 } // namespace
