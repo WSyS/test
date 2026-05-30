@@ -97,9 +97,11 @@ void Driver::processContent(Telegram *t)
     // stack. Keep decoding here conservative and bail out on suspicious
     // frames.
 
-    ESP_LOGI("APP", "(brummerhoop) processContent enter t=%p dv=%d header=%d suffix=%d",
+    ESP_LOGI("APP", "(brummerhoop) processContent enter t=%p dv=%d header=%d suffix=%d parsed=%d",
              (void *)t, t ? (int)t->dv_entries.size() : -1,
-             t ? t->header_size : -1, t ? t->suffix_size : -1);
+             t ? t->header_size : -1, t ? t->suffix_size : -1,
+             t ? (int)t->parsed.size() : -1);
+
 
     if (t == NULL)
         return;
