@@ -8,8 +8,13 @@ struct Driver : public virtual MeterCommonImplementation
 {
     Driver(MeterInfo &mi, DriverInfo &di);
 
+    bool handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame,
+                         bool simulated, std::vector<Address> *addresses,
+                         bool *id_match, Telegram *out_analyzed = NULL) override;
+
     void processContent(Telegram *t) override;
 };
+
 
 static bool ok = registerDriver([](DriverInfo &di)
 {
@@ -52,8 +57,37 @@ Driver::Driver(MeterInfo &mi, DriverInfo &di)
              "**************** WATERSTARM DRIVER LOADED ****************");
 }
 
+bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame,
+                           bool simulated, std::vector<Address> *addresses,
+                           bool *id_match, Telegram *out_analyzed)
+{
+    ESP_LOGI("APP", "(brummerhoop) handleTelegram entered simulated=%d frame_size=%d id_match_ptr=%p addresses_ptr=%p",
+             (int)simulated, (int)input_frame.size(), (void *)id_match, (void *)addresses);
+
+    // Cache frame in a minimal way and let the processContent pipeline do the work
+    // if it ever gets called.
+    // Note: Since this driver should be matched by dispatcher, this should run.
+
+    // Call parent to ensure Telegram is analyzed.
+    bool parent_ok = MeterCommonImplementation::handleTelegram(about, input_frame,
+                                                                 simulated, addresses,
+                                                                 id_match, out_analyzed);
+
+    ESP_LOGI("APP", "(brummerhoop) handleTelegram parent_ok=%d out_analyzed=%p discard=%d",
+             (int)parent_ok, (void *)out_analyzed,
+             out_analyzed ? (int)out_analyzed->discard : -1);
+
+    // If the core decided to call processContent for us, it will already be done.
+    // Otherwise, invoke it here for consistent field extraction/logging.
+    if (out_analyzed != NULL && !out_analyzed->discard)
+        processContent(out_analyzed);
+
+    return true;
+}
+
 void Driver::processContent(Telegram *t)
 {
+
     // Brummerhoop frames contain many VIFs and (for some payload variants)
     // the generic extractor path may recurse deeply and overflow the ESP32
     // stack. Keep decoding here conservative and bail out on suspicious
