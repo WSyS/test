@@ -80,7 +80,7 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
     if (out_analyzed != NULL && !out_analyzed->discard)
         processContent(out_analyzed);
 
-        
+
     return true;
 
 }
@@ -162,8 +162,10 @@ void Driver::processContent(Telegram *t)
     // frames.
 
     ESP_LOGI("APP", "(brummerhoop) processContent enter t=%p dv=%d header=%d suffix=%d parsed=%d",
-             (void *)t, t ? (int)t->dv_entries.size() : -1,
-             t ? t->header_size : -1, t ? t->suffix_size : -1,
+             (void *)t,
+             t ? (int)t->dv_entries.size() : -1,
+             t ? t->header_size : -1,
+             t ? t->suffix_size : -1,
              t ? (int)t->parsed.size() : -1);
 
 

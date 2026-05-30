@@ -169,7 +169,7 @@ std::map<uint16_t, std::string> hash_to_format_;
 bool loadFormatBytesFromSignature(uint16_t format_signature,
                                   std::vector<uchar> *format_bytes) {
   if (hash_to_format_.count(format_signature) > 0) {
-    debug("(dvparser) found remembered format for hash %x\n", format_signature);
+    ESP_LOGW("APP", "(dvparser) found remembered format for hash %x\n", format_signature);
     // Return the proper hash!
     hex2bin(hash_to_format_[format_signature], format_bytes);
     return true;
@@ -209,7 +209,7 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
     data_has_difvifs = false;
     format_end = *format + format_len;
     std::string s = bin2hex(*format, format_end, format_len);
-    debug("(dvparser) using format \"%s\"\n", s.c_str());
+    ESP_LOGW("APP", "(dvparser) using format \"%s\"\n", s.c_str());
   }
 
   dv_entries->clear();
@@ -218,8 +218,8 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
 
   // Debug: identify parser progress and bail out on non-advancing parses.
   // (Used to troubleshoot pathological telegrams causing ESP32 stack overflows.)
-  const size_t MAX_DIF_E = 12;
-  const size_t MAX_VIF_E = 12;
+  const size_t MAX_DIF_E = 50;
+  const size_t MAX_VIF_E = 50;
 
   size_t prev_data_offset = std::distance(data_start, data);
   size_t prev_format_offset = std::distance(*format, format_end);
@@ -258,7 +258,7 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
   size_t dv_iterations = 0;
   for (;;) {
     if (++dv_iterations > MAX_DV_ITERATIONS) {
-      debug("(dvparser) aborting parseDV: exceeded MAX_DV_ITERATIONS=%u\n",
+      ESP_LOGW("APP", "(dvparser) aborting parseDV: exceeded MAX_DV_ITERATIONS=%u\n",
             (unsigned)MAX_DV_ITERATIONS);
       break;
     }
@@ -274,7 +274,7 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
     // outer entries.)
     if (std::distance(data_start, data) == prev_data_offset &&
         std::distance(*format, format_end) == prev_format_offset) {
-      debug("(dvparser) aborting parseDV: no progress detected prev_data_offset=%u prev_format_remaining=%u\n",
+      ESP_LOGW("APP", "(dvparser) aborting parseDV: no progress detected prev_data_offset=%u prev_format_remaining=%u\n",
             (unsigned)prev_data_offset,
             (unsigned)prev_format_offset);
       break;
@@ -382,11 +382,11 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
     while (has_another_dife) {
       num_dife++;
       if (num_dife > 10) {
-        debug("(dvparser) warning: too many dife found!\n");
+        ESP_LOGW("APP", "(dvparser) warning: too many dife found!\n");
         break;
       }
       if (*format == format_end) {
-        debug("(dvparser) warning: unexpected end of data (dife expected)\n");
+        ESP_LOGW("APP", "(dvparser) warning: unexpected end of data (dife expected)\n");
         break;
       }
 
@@ -419,7 +419,7 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
     }
 
     if (*format == format_end) {
-      debug("(dvparser) warning: unexpected end of data (vif expected)\n");
+      ESP_LOGW("APP", "(dvparser) warning: unexpected end of data (vif expected)\n");
       break;
     }
 
@@ -461,7 +461,7 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
     if (vif == 0x7c || vif == 0xfc) {
       DEBUG_PARSER("(dvparser debug) variable length vif found\n");
       if (*format == format_end) {
-        debug("(dvparser) warning: unexpected end of data (vif varlen "
+        ESP_LOGW("APP", "(dvparser) warning: unexpected end of data (vif varlen "
               "expected)\n");
         break;
       }
@@ -472,7 +472,7 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
                                        viflen, viflen);
       for (uchar i = 0; i < viflen; ++i) {
         if (*format == format_end) {
-          debug("(dvparser) warning: unexpected end of data (vif varlen byte "
+          ESP_LOGW("APP", "(dvparser) warning: unexpected end of data (vif varlen byte "
                 "%d/%d expected)\n",
                 i + 1, viflen);
           break;
@@ -493,12 +493,12 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
     while (has_another_vife) {
       num_vife++;
       if (num_vife > 10) {
-        debug("(dvparser) warning: too many vife found!\n");
+        ESP_LOGW("APP", "(dvparser) warning: too many vife found!\n");
         break;
       }
 
       if (*format == format_end) {
-        debug("(dvparser) warning: unexpected end of data (vife expected)\n");
+        ESP_LOGW("APP", "(dvparser) warning: unexpected end of data (vife expected)\n");
         break;
       }
 
@@ -587,7 +587,7 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
 
     int remaining = std::distance(data, data_end);
     if (remaining < 1) {
-      debug("(dvparser) warning: unexpected end of data\n");
+      ESP_LOGW("APP", "(dvparser) warning: unexpected end of data\n");
       break;
     }
 
@@ -602,7 +602,7 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
     DEBUG_PARSER("(dvparser debug) remaining data %d len=%d\n", remaining,
                  datalen);
     if (remaining < datalen) {
-      debug("(dvparser) warning: unexpected end of data\n");
+      ESP_LOGW("APP", "(dvparser) warning: unexpected end of data\n");
       datalen = remaining - 1;
     }
 
@@ -611,7 +611,7 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
 
     // Safety: avoid exploding map growth for pathological frames.
     if (dv_entries->size() >= MAX_DV_ENTRIES && dv_entries->count(key) == 0) {
-      debug("(dvparser) aborting parseDV: exceeded MAX_DV_ENTRIES=%u\n",
+      ESP_LOGW("APP", "(dvparser) aborting parseDV: exceeded MAX_DV_ENTRIES=%u\n",
             (unsigned)MAX_DV_ENTRIES);
       break;
     }
@@ -647,7 +647,7 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
   if (data_has_difvifs) {
     if (hash_to_format_.count(hash) == 0) {
       hash_to_format_[hash] = format_string;
-      debug("(dvparser) found new format \"%s\" with hash %x, remembering!\n",
+      ESP_LOGW("APP", "(dvparser) found new format \"%s\" with hash %x, remembering!\n",
             format_string.c_str(), hash);
     }
   }
@@ -691,7 +691,7 @@ bool findKeyWithNr(MeasurementType mit, VIFRange vif_range, StorageNr storagenr,
       nr--;
       if (nr <= 0)
         return true;
-      debug("(dvparser) found key %s for type=%s vif=%x storagenr=%d\n",
+      ESP_LOGW("APP", "(dvparser) found key %s for type=%s vif=%x storagenr=%d\n",
             v.first.c_str(), measurementTypeName(ty).c_str(), vi.intValue(),
             storagenr.intValue());
     }
