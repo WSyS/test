@@ -160,11 +160,14 @@ void Driver::processContent(Telegram *t)
     // (We rely on dv_entries extraction already happened; we only avoid
     // further heavy processing.)
 
+    ESP_LOGW("APP", "(brummerhoop) dv_entries size=%d", (int)t->dv_entries.size());
+
     // Dump a small part of dv_entries to be able to wire the correct
     // extractors (for total_m3, backward-at-set-date, status).
     // Keep bounded to avoid log spam.
     int dumped = 0;
     for (auto &kv : t->dv_entries) {
+
         if (dumped++ >= 25)
             break;
         // kv.first: dif+vif key
