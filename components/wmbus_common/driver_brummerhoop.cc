@@ -32,7 +32,8 @@ static bool ok = registerDriver([](DriverInfo &di)
     // However, for this implementation we rely on the generic parsing
     // pipeline to populate dv_entries (needed for extraction).
     // We still keep conservative safety checks inside processContent.
-    // di.usesProcessContent();
+    di.usesProcessContent();
+
 
 
 // Adjust manufacturer if needed
@@ -144,7 +145,12 @@ Driver::Driver(MeterInfo &mi, DriverInfo &di)
 
 void Driver::processContent(Telegram *t)
 {
+    // Keep this function intentionally minimal: field extraction is handled
+    // by MeterCommonImplementation::processFieldExtractors based on dv_entries.
+    // If the generic parser cannot populate dv_entries, there is nothing safe
+    // to do here without custom DIF/VIF parsing.
     ESP_LOGW("APP", "(brummerhoop) processContent ENTER");
+
 
 
     // Brummerhoop frames contain many VIFs and (for some payload variants)
@@ -241,10 +247,13 @@ void Driver::processContent(Telegram *t)
                  kv.second.second.subunit_nr.intValue());
     }
 
-    // Field extraction is implemented via registered field extractors.
-    // processContent() only performs conservative safety checks.
+    // Field extraction is implemented via registered field extractors
+    // (MeterCommonImplementation::processFieldExtractors). If dv_entries is
+    // empty, generic parsing failed for this telegram; do not attempt unsafe
+    // custom parsing here.
 
     (void)t;
+
 
 }
 
