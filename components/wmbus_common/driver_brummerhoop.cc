@@ -158,27 +158,29 @@ void Driver::processContent(Telegram *t)
     // (We rely on dv_entries extraction already happened; we only avoid
     // further heavy processing.)
 
-    // We decode only a small subset of fields needed by Home Assistant.
-    // Brummerhoop telegrams can be pathological, so we do everything in
-    // conservative, bounded ways.
+    // Dump a small part of dv_entries to be able to wire the correct
+    // extractors (for total_m3, backward-at-set-date, status).
+    // Keep bounded to avoid log spam.
+    int dumped = 0;
+    for (auto &kv : t->dv_entries) {
+        if (dumped++ >= 25)
+            break;
+        // kv.first: dif+vif key
+        // kv.second: DVEntry
+        ESP_LOGI("APP", "(brummerhoop) dv_entry[%d] key=%s value=%s mt_vif=%x st=%d ta=%d su=%d",
+                 dumped, kv.first.c_str(), kv.second.second.value.c_str(),
+                 kv.second.second.vif.intValue(),
+                 kv.second.second.storage_nr.intValue(),
+                 kv.second.second.tariff_nr.intValue(),
+                 kv.second.second.subunit_nr.intValue());
+    }
 
-    // total_m3: try to read volume for storage 0 (or default storage).
-    // total_backwards_at_set_date_m3: backward flow volume at storage 1.
-    // status: decode error flags if present, otherwise fall back to tpl status.
-
-    // Rely on the generic dv_extraction helpers by activating a minimal set
-    // of field extractors via the common implementation.
-    // Note: MeterCommonImplementation field wiring is done by
-    // add*FieldWithExtractor* calls, which are intentionally absent in this
-    // driver today.
-
-    // If we already have fields extracted by the generic pipeline, do not
-    // override them.
-    // (When di.usesProcessContent() is enabled, the generic pipeline may be
-    // skipped for some drivers. We keep this no-op to avoid changing parsing
-    // logic on pathological frames.)
+    // NOTE: currently no field extraction is implemented yet.
+    // The next iteration will add best-effort extraction by matching the
+    // dv_entry keys (or VIF ranges) we identify above.
 
     (void)t;
+
 }
 
 
