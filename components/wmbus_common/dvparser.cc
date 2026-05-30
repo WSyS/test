@@ -241,7 +241,19 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
 
   format_bytes.clear();
   id_bytes.clear();
+  // Hard safety limits to avoid pathological telegrams causing very deep
+  // parsing and eventually an ESP32 stack overflow.
+  const size_t MAX_DV_ITERATIONS = 256;
+  const size_t MAX_DV_ENTRIES = 64;
+
+  size_t dv_iterations = 0;
   for (;;) {
+    if (++dv_iterations > MAX_DV_ITERATIONS) {
+      debug("(dvparser) aborting parseDV: exceeded MAX_DV_ITERATIONS=%u\n",
+            (unsigned)MAX_DV_ITERATIONS);
+      break;
+    }
+
     id_bytes.clear();
     DEBUG_PARSER("(dvparser debug) Remaining format data %ju\n",
                  std::distance(*format, format_end));
@@ -574,6 +586,13 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
 
     std::string value = bin2hex(data, data_end, datalen);
     int offset = start_parse_here + data - data_start;
+
+    // Safety: avoid exploding map growth for pathological frames.
+    if (dv_entries->size() >= MAX_DV_ENTRIES && dv_entries->count(key) == 0) {
+      debug("(dvparser) aborting parseDV: exceeded MAX_DV_ENTRIES=%u\n",
+            (unsigned)MAX_DV_ENTRIES);
+      break;
+    }
 
     (*dv_entries)[key] = {
         offset, DVEntry(offset, key, mt, Vif(full_vif), found_combinable_vifs,
