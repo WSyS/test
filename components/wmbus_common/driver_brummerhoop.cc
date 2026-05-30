@@ -75,12 +75,15 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
              (int)parent_ok, (void *)out_analyzed,
              out_analyzed ? (int)out_analyzed->discard : -1);
 
-    // If the core decided to call processContent for us, it will already be done.
-    // Otherwise, invoke it here for consistent field extraction/logging.
-    if (out_analyzed != NULL && !out_analyzed->discard)
-        processContent(out_analyzed);
+    // Do not call processContent() here. Field extraction happens after
+    // MeterCommonImplementation::handleTelegram has parsed the telegram into
+    // dv_entries.
+    // processContent() is intentionally minimal to avoid any unsafe custom
+    // parsing on frames where parsing fails.
 
+    (void)out_analyzed;
     return true;
+
 }
 
 Driver::Driver(MeterInfo &mi, DriverInfo &di)
