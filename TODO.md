@@ -4,4 +4,5 @@
 
 
 - [ ] Build/compile or run existing checks to ensure no errors
+
 - [ ] Verify Home Assistant field names align with project conventions

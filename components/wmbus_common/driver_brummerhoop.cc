@@ -68,6 +68,28 @@ void Driver::processContent(Telegram *t)
         return;
     }
 
+    // Debug: log configured meter_id(s) and extracted packet meter id for
+    // easier troubleshooting when Home Assistant reports that telegrams are
+    // not handled.
+    //
+    // Similar logic exists in driver_izar_rc.cc.
+    std::vector<AddressExpression> aexps = this->addressExpressions();
+    std::string yaml_meter_id = aexps.size() > 0 ? aexps[0].id : "0";
+    yaml_meter_id = std::to_string(std::stoul(yaml_meter_id, nullptr, 16));
+
+    std::string packet_meter_id;
+    if (t->frame.size() > 10)
+    {
+        // Bytes t->frame[4..7] correspond to meter id bytes (endianness adjusted
+        // for addressExpressions matching in other drivers).
+        uchar id0 = t->frame[6], id1 = t->frame[7], id2 = t->frame[8], id3 = t->frame[9];
+        packet_meter_id = tostrprintf("%02X%02X%02X%02X", id3, id2, id1, id0);
+    }
+
+    ESP_LOGI("APP", "(brummerhoop) configured meter_id(yaml)=%s", yaml_meter_id.c_str());
+    ESP_LOGI("APP", "(brummerhoop) extracted meter_id(packet)=%s", packet_meter_id.c_str());
+
+
     // Additional conservative rule: if the decoded format is clearly not a
     // compact profile for this meter, discard.
     // (We rely on dv_entries extraction already happened; we only avoid
