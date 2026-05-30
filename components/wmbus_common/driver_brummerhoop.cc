@@ -28,9 +28,11 @@ static bool ok = registerDriver([](DriverInfo &di)
 
 
     // Brummerhoop payload parsing can require custom processing.
-    // Without this, the generic content pipeline may recurse/deep-parse
-    // malformed DIF/VIF chains and overflow the ESP32 stack.
-    di.usesProcessContent();
+    // However, for this implementation we rely on the generic parsing
+    // pipeline to populate dv_entries (needed for extraction).
+    // We still keep conservative safety checks inside processContent.
+    // di.usesProcessContent();
+
 
 // Adjust manufacturer if needed
     // For brummerhoop telegrams the "version" field is not constant, so keep
