@@ -123,11 +123,31 @@ void Driver::processContent(Telegram *t)
     std::string packet_meter_id;
     if (t->frame.size() > 10)
     {
-        // Bytes t->frame[4..7] correspond to meter id bytes (endianness adjusted
-        // for addressExpressions matching in other drivers).
-        uchar id0 = t->frame[6], id1 = t->frame[7], id2 = t->frame[8], id3 = t->frame[9];
-        packet_meter_id = tostrprintf("%02X%02X%02X%02X", id3, id2, id1, id0);
+        // Best-effort: try multiple common offsets for the meter id.
+        // Different parts of the stack may present the frame with different
+        // trimming/endianness.
+        //
+        // Keep it deterministic so logs help identify the correct mapping.
+        auto try_pack = [&](size_t o0, size_t o1, size_t o2, size_t o3, const char *tag) {
+            if (o3 >= t->frame.size())
+                return;
+            uchar id0 = t->frame[o0];
+            uchar id1 = t->frame[o1];
+            uchar id2 = t->frame[o2];
+            uchar id3 = t->frame[o3];
+            std::string cand = tostrprintf("%02X%02X%02X%02X", id3, id2, id1, id0);
+            ESP_LOGI("APP", "(brummerhoop) meter_id(packet) cand[%s]=%s", tag, cand.c_str());
+            if (packet_meter_id.empty())
+                packet_meter_id = cand;
+        };
+
+        // Common attempts (from earlier heuristic + typical variants).
+        try_pack(6, 7, 8, 9, "o6_9");
+        try_pack(4, 5, 6, 7, "o4_7");
+        try_pack(7, 8, 9, 10, "o7_10");
+        try_pack(8, 9, 10, 11, "o8_11");
     }
+
 
     ESP_LOGI("APP", "(brummerhoop) configured meter_id(yaml)=%s", yaml_meter_id.c_str());
     ESP_LOGI("APP", "(brummerhoop) extracted meter_id(packet)=%s", packet_meter_id.c_str());
