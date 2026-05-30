@@ -18,8 +18,13 @@ static bool ok = registerDriver([](DriverInfo &di)
     di.addLinkMode(LinkMode::T1);
     di.addLinkMode(LinkMode::C1);
 
+    // Brummerhoop payload parsing can require custom processing.
+    // Without this, the generic content pipeline may recurse/deep-parse
+    // malformed DIF/VIF chains and overflow the ESP32 stack.
+    di.usesProcessContent();
+
     // Adjust manufacturer if needed
-    //di.addDetection(MANUFACTURER_EFE, 0x07, -1);
+    di.addDetection(MANUFACTURER_EFE, 0x07, -1);
 
     di.setConstructor([](MeterInfo &mi, DriverInfo &di)
     {
