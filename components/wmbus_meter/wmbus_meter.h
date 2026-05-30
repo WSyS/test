@@ -34,6 +34,8 @@ protected:
   std::shared_ptr<::Meter> meter;
   std::unique_ptr<Telegram> last_telegram;
 
+  optional<int> last_rssi_dbm_;
+
   CallbackManager<void()> on_telegram_callback_manager;
 
   void handle_frame(wmbus_radio::Frame *frame);

@@ -64,6 +64,7 @@ void Meter::handle_frame(wmbus_radio::Frame *frame) {
 
   if (id_match) {
     this->last_telegram = std::move(telegram);
+    this->last_rssi_dbm_ = frame->rssi();
     this->defer([this]() {
       this->on_telegram_callback_manager();
       this->last_telegram = nullptr;
