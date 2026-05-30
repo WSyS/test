@@ -252,8 +252,8 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
   id_bytes.clear();
   // Hard safety limits to avoid pathological telegrams causing very deep
   // parsing and eventually an ESP32 stack overflow.
-  const size_t MAX_DV_ITERATIONS = 256;
-  const size_t MAX_DV_ENTRIES = 64;
+  const size_t MAX_DV_ITERATIONS = 512;
+  const size_t MAX_DV_ENTRIES = 128;
 
   size_t dv_iterations = 0;
   for (;;) {
