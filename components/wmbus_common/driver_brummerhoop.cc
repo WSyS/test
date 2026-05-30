@@ -13,7 +13,7 @@ struct Driver : public virtual MeterCommonImplementation
 
 static bool ok = registerDriver([](DriverInfo &di)
 {
-    //di.setName("brummerhoop");
+    di.setName("brummerhoop");
 
     di.setMeterType(MeterType::WaterMeter);
     di.setDefaultFields("name,id,total_m3,total_backwards_at_set_date_m3,status,timestamp");
@@ -27,10 +27,19 @@ static bool ok = registerDriver([](DriverInfo &di)
     // malformed DIF/VIF chains and overflow the ESP32 stack.
     di.usesProcessContent();
 
-    // Adjust manufacturer if needed
+// Adjust manufacturer if needed
+    // For brummerhoop telegrams the "version" field is not constant, so keep
+    // it wildcarded (-1) but still bind to the correct manufacturer
+
     di.addDetection(MANUFACTURER_EFE, 0x07, -1);
 
+    // Best-effort matching for common Brummerhoop/Waterstarm variants.
+    // If these don't match your specific meter, they won't harm selection.
+    di.addDetection(MANUFACTURER_DWZ, 0x07, 0x00); // warm water
+    di.addDetection(MANUFACTURER_DWZ, 0x07, 0x02); // alternative
+
     di.setConstructor([](MeterInfo &mi, DriverInfo &di)
+
     {
         return std::shared_ptr<Meter>(new Driver(mi, di));
     });
