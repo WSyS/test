@@ -87,8 +87,10 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
 
 void Driver::processContent(Telegram *t)
 {
+    ESP_LOGW("APP", "(brummerhoop) processContent ENTER");
 
     // Brummerhoop frames contain many VIFs and (for some payload variants)
+
     // the generic extractor path may recurse deeply and overflow the ESP32
     // stack. Keep decoding here conservative and bail out on suspicious
     // frames.
