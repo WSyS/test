@@ -23,6 +23,7 @@ static bool ok = registerDriver([](DriverInfo &di)
     di.setMeterType(MeterType::WaterMeter);
     di.setDefaultFields("name,id,total_m3,total_backwards_at_set_date_m3,status,timestamp");
 
+
     di.addLinkMode(LinkMode::T1);
     di.addLinkMode(LinkMode::C1);
 
@@ -52,16 +53,10 @@ static bool ok = registerDriver([](DriverInfo &di)
     });
 });
 
-Driver::Driver(MeterInfo &mi, DriverInfo &di)
-    : MeterCommonImplementation(mi, di)
-{
-    ESP_LOGE("APP",
-             "**************** WATERSTARM DRIVER LOADED ****************");
-}
-
 bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame,
                            bool simulated, std::vector<Address> *addresses,
                            bool *id_match, Telegram *out_analyzed)
+
 {
     ESP_LOGI("APP", "(brummerhoop) handleTelegram entered simulated=%d frame_size=%d id_match_ptr=%p addresses_ptr=%p",
              (int)simulated, (int)input_frame.size(), (void *)id_match, (void *)addresses);
@@ -87,9 +82,70 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
     return true;
 }
 
+Driver::Driver(MeterInfo &mi, DriverInfo &di)
+    : MeterCommonImplementation(mi, di)
+{
+    ESP_LOGE("APP",
+             "**************** BRUMMERHOOP DRIVER LOADED ****************");
+
+
+    addStringFieldWithExtractorAndLookup(
+        "status",
+        "Status and error flags.",
+        DEFAULT_PRINT_PROPERTIES | PrintProperty::INCLUDE_TPL_STATUS | PrintProperty::STATUS,
+        FieldMatcher::build()
+            .set(VIFRange::ErrorFlags),
+        {
+            {
+                {
+                    "ERROR_FLAGS",
+                    Translate::MapType::BitToString,
+                    AlwaysTrigger,
+                    MaskBits(0xffff),
+                    "OK",
+                    {
+                        {0x01, "SW_ERROR"},
+                        {0x02, "CRC_ERROR"},
+                        {0x04, "SENSOR_ERROR"},
+                        {0x08, "MEASUREMENT_ERROR"},
+                        {0x10, "BATTERY_VOLTAGE_ERROR"},
+                        {0x20, "MANIPULATION"},
+                        {0x40, "LEAKAGE_OR_NO_USAGE"},
+                        {0x80, "REVERSE_FLOW"},
+                        {0x100, "OVERLOAD"},
+                    }
+                },
+            },
+        });
+
+    addNumericFieldWithExtractor(
+        "total",
+        "The total water consumption recorded by this meter.",
+        DEFAULT_PRINT_PROPERTIES,
+        Quantity::Volume,
+        VifScaling::Auto,
+        DifSignedness::Signed,
+        FieldMatcher::build()
+            .set(MeasurementType::Instantaneous)
+            .set(VIFRange::Volume));
+
+    addNumericFieldWithExtractor(
+        "total_backwards",
+        "The total backward water volume recorded by this meter.",
+        DEFAULT_PRINT_PROPERTIES,
+        Quantity::Volume,
+        VifScaling::Auto,
+        DifSignedness::Signed,
+        FieldMatcher::build()
+            .set(MeasurementType::Instantaneous)
+            .set(VIFRange::AnyVolumeVIF)
+            .add(VIFCombinable::BackwardFlow));
+}
+
 void Driver::processContent(Telegram *t)
 {
     ESP_LOGW("APP", "(brummerhoop) processContent ENTER");
+
 
     // Brummerhoop frames contain many VIFs and (for some payload variants)
 
@@ -120,6 +176,7 @@ void Driver::processContent(Telegram *t)
     // Debug: log configured meter_id(s) and extracted packet meter id for
     // easier troubleshooting when Home Assistant reports that telegrams are
     // not handled.
+
     //
     // Similar logic exists in driver_izar_rc.cc.
     std::vector<AddressExpression> aexps = this->addressExpressions();
@@ -184,13 +241,15 @@ void Driver::processContent(Telegram *t)
                  kv.second.second.subunit_nr.intValue());
     }
 
-    // NOTE: currently no field extraction is implemented yet.
-    // The next iteration will add best-effort extraction by matching the
-    // dv_entry keys (or VIF ranges) we identify above.
+    // Field extraction is implemented via registered field extractors.
+    // processContent() only performs conservative safety checks.
 
     (void)t;
 
 }
 
 
+    // (Other helper methods/fields live in MeterCommonImplementation)
+
 } // namespace
+
