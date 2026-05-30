@@ -19,7 +19,7 @@ static bool ok = registerDriver([](DriverInfo &di)
     di.addLinkMode(LinkMode::C1);
 
     // Adjust manufacturer if needed
-    di.addDetection(MANUFACTURER_EFE, 0x07, -1);
+    //di.addDetection(MANUFACTURER_EFE, 0x07, -1);
 
     di.setConstructor([](MeterInfo &mi, DriverInfo &di)
     {
