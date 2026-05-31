@@ -216,6 +216,15 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
 
   // Data format is:
 
+  // Debug: identify parser progress and bail out on non-advancing parses.
+  // (Used to troubleshoot pathological telegrams causing ESP32 stack overflows.)
+  const size_t MAX_DIF_E = 50;
+  const size_t MAX_VIF_E = 50;
+
+  size_t prev_data_offset = std::distance(data_start, data);
+  size_t prev_format_offset = std::distance(*format, format_end);
+
+
   // DIF byte (defines how the binary data bits should be decoded and howy man
   // data bytes there are) Sometimes followed by one or more dife bytes, if the
   // 0x80 high bit is set. The last dife byte does not have the 0x80 bit set.
@@ -241,12 +250,37 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
 
   format_bytes.clear();
   id_bytes.clear();
+  // Hard safety limits to avoid pathological telegrams causing very deep
+  // parsing and eventually an ESP32 stack overflow.
+  const size_t MAX_DV_ITERATIONS = 512;
+  const size_t MAX_DV_ENTRIES = 128;
+
+  size_t dv_iterations = 0;
   for (;;) {
+    if (++dv_iterations > MAX_DV_ITERATIONS) {
+      ESP_LOGW("APP", "(dvparser) aborting parseDV: exceeded MAX_DV_ITERATIONS=%u\n",
+            (unsigned)MAX_DV_ITERATIONS);
+      break;
+    }
+
     id_bytes.clear();
     DEBUG_PARSER("(dvparser debug) Remaining format data %ju\n",
                  std::distance(*format, format_end));
     if (*format == format_end)
       break;
+
+    // Inner caps: prevent pathological DIF/VIF chains.
+    // (They only bound the number of parsed DIF/VIF extension bytes, not the
+    // outer entries.)
+    if (std::distance(data_start, data) == prev_data_offset &&
+        std::distance(*format, format_end) == prev_format_offset) {
+      ESP_LOGW("APP", "(dvparser) aborting parseDV: no progress detected prev_data_offset=%u prev_format_remaining=%u\n",
+            (unsigned)prev_data_offset,
+            (unsigned)prev_format_offset);
+      break;
+    }
+    prev_data_offset = std::distance(data_start, data);
+    prev_format_offset = std::distance(*format, format_end);
 
     if (force_mfct_index != -1) {
       // This is an old meter without a proper 0f or other hear start
@@ -574,6 +608,13 @@ bool parseDV(Telegram *t, std::vector<uchar> &databytes,
 
     std::string value = bin2hex(data, data_end, datalen);
     int offset = start_parse_here + data - data_start;
+
+    // Safety: avoid exploding map growth for pathological frames.
+    if (dv_entries->size() >= MAX_DV_ENTRIES && dv_entries->count(key) == 0) {
+      ESP_LOGW("APP", "(dvparser) aborting parseDV: exceeded MAX_DV_ENTRIES=%u\n",
+            (unsigned)MAX_DV_ENTRIES);
+      break;
+    }
 
     (*dv_entries)[key] = {
         offset, DVEntry(offset, key, mt, Vif(full_vif), found_combinable_vifs,
