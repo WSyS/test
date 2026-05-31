@@ -251,24 +251,35 @@ void Driver::processContent(Telegram *t)
     // Raw status bits are not exposed as a separate raw numeric/string
     // value by this driver abstraction, so we log them as <n/a>.
     {
+        // Field values are populated by MeterCommonImplementation's
+        // field extraction logic. Verify we actually got values.
+        FieldInfo *fi_total = this->findFieldInfo("total", Quantity::Volume);
+        FieldInfo *fi_total_backwards =
+            this->findFieldInfo("total_backwards", Quantity::Volume);
+        FieldInfo *fi_status = this->findFieldInfo("status", Quantity::Unknown);
+
+        bool has_total = fi_total && this->hasNumericValue(fi_total);
+        bool has_total_backwards =
+            fi_total_backwards && this->hasNumericValue(fi_total_backwards);
+        bool has_status = fi_status && this->hasStringValue(fi_status);
+
         double total_m3 = 0.0;
         double total_backwards_m3 = 0.0;
+        std::string status_decoded;
 
-        // total is a numeric field configured for Quantity::Volume; the
-        // framework conversion will return the value in the Unit we request.
-        total_m3 = this->getNumericValue("total", Unit::M3);
-        total_backwards_m3 = this->getNumericValue("total_backwards", Unit::M3);
-
-        // status is a string field created with bit-to-string lookup.
-        std::string status_decoded =
-            this->getStringValue(this->findFieldInfo("status", Quantity::Unknown));
+        if (has_total)
+            total_m3 = this->getNumericValue(fi_total);
+        if (has_total_backwards)
+            total_backwards_m3 = this->getNumericValue(fi_total_backwards);
+        if (has_status)
+            status_decoded = this->getStringValue(fi_status);
 
         std::string status_raw_bits = "<n/a>";
 
-        ESP_LOGI("APP", "(brummerhoop) total_m3=%f total_backwards_m3=%f status_raw_bits=%s status_decoded=%s",
-                 total_m3,
-                 total_backwards_m3,
-                 status_raw_bits.c_str(),
+        ESP_LOGI("APP",
+                 "(brummerhoop) has_total=%d has_total_backwards=%d has_status=%d total_m3=%f total_backwards_m3=%f status_raw_bits=%s status_decoded=%s",
+                 (int)has_total, (int)has_total_backwards, (int)has_status,
+                 total_m3, total_backwards_m3, status_raw_bits.c_str(),
                  status_decoded.c_str());
     }
 
