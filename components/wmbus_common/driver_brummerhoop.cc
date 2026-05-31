@@ -257,12 +257,12 @@ void Driver::processContent(Telegram *t)
         std::string status_raw_bits;
 
         // Numeric raw values (m3)
-        total_m3 = this->getNumericValue("total", Unit::m3);
-        total_backwards_m3 = this->getNumericValue("total_backwards", Unit::m3);
+        total_m3 = this->getNumericValue("total", Unit::M3);
+        total_backwards_m3 = this->getNumericValue("total_backwards", Unit::M3);
 
-        // Decoded status (lookup result). "status" is a string field, its
-        // Quantity isn't needed for lookup; pass Unit::Unknown.
-        status_decoded = this->getStringValue(this->findFieldInfo("status", Unit::Unknown));
+        // Decoded status (lookup result). `status` is a string field; its
+        // fieldinfo uses a Quantity (Quantity::Unknown is acceptable).
+        status_decoded = this->getStringValue(this->findFieldInfo("status", Quantity::Unknown));
 
         // Raw status bits are not directly available as a separate raw field.
         // Keep it explicit in the log.
