@@ -71,8 +71,10 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
     //                                                             simulated, addresses,
     //                                                             id_match, out_analyzed);
 
-    bool parent_ok = 0;
     
+
+    bool parent_ok = 0;
+
     ESP_LOGI("APP", "(brummerhoop) handleTelegram parent_ok=%d out_analyzed=%p discard=%d",
              (int)parent_ok, (void *)out_analyzed,
              out_analyzed ? (int)out_analyzed->discard : -1);
@@ -198,6 +200,7 @@ void Driver::processContent(Telegram *t)
     std::string packet_meter_id;
     if (t->frame.size() > 10)
     {
+        ESP_LOGI("APP", "(brummerhoop) frame.size()>10");
         // Best-effort: try multiple common offsets for the meter id.
         // Different parts of the stack may present the frame with different
         // trimming/endianness.

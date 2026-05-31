@@ -272,7 +272,7 @@ namespace
       ESP_LOGI("APP", "(izar_rc) processContent early-return: NULL telegram");
       return;
     }
-
+extracted meter_id(packet)=
     ESP_LOGW("APP", "IZAR_RC_STATS frame=%d original=%d header=%d suffix=%d dv=%d",
              (int)t->frame.size(), (int)t->original.size(), t->header_size, t->suffix_size, (int)t->dv_entries.size());
 
