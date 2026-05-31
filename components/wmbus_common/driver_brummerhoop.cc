@@ -246,29 +246,26 @@ void Driver::processContent(Telegram *t)
                  kv.second.second.subunit_nr.intValue());
     }
 
-    // Log decoded values when available (raw + decoded).
-    // - total: numeric raw value (m3)
-    // - status: decoded string; raw bits are taken from the dv_entries that
-    //   back the configured "status" extractor.
+    // Log decoded values when available.
+    // Note: We currently log "status" as the decoded string.
+    // Raw status bits are not exposed as a separate raw numeric/string
+    // value by this driver abstraction, so we log them as <n/a>.
     {
-        double total_m3 = -999.9;
-        double total_backwards_m3 = -999.9;
-        std::string status_decoded;
-        std::string status_raw_bits;
+        double total_m3 = 0.0;
+        double total_backwards_m3 = 0.0;
 
-        // Numeric raw values (m3)
+        // total is a numeric field configured for Quantity::Volume; the
+        // framework conversion will return the value in the Unit we request.
         total_m3 = this->getNumericValue("total", Unit::M3);
         total_backwards_m3 = this->getNumericValue("total_backwards", Unit::M3);
 
-        // Decoded status (lookup result). `status` is a string field; its
-        // fieldinfo uses a Quantity (Quantity::Unknown is acceptable).
-        status_decoded = this->getStringValue(this->findFieldInfo("status", Quantity::Unknown));
+        // status is a string field created with bit-to-string lookup.
+        std::string status_decoded =
+            this->getStringValue(this->findFieldInfo("status", Quantity::Unknown));
 
-        // Raw status bits are not directly available as a separate raw field.
-        // Keep it explicit in the log.
-        status_raw_bits = "<n/a>";
+        std::string status_raw_bits = "<n/a>";
 
-        ESP_LOGI("APP", "(brummerhoop) total_raw_m3=%f total_backwards_raw_m3=%f status_raw_bits=%s status_decoded=%s",
+        ESP_LOGI("APP", "(brummerhoop) total_m3=%f total_backwards_m3=%f status_raw_bits=%s status_decoded=%s",
                  total_m3,
                  total_backwards_m3,
                  status_raw_bits.c_str(),
