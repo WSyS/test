@@ -97,7 +97,7 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
     if (frame.size() > 10)
     {
       // Bytes frame[4..7] correspond to meter id bytes (endianness adjusted for addressExpressions matching).
-      uchar id0 = frame[6], id1 = frame[7], id2 = frame[8], id3 = frame[9];
+      uchar id0 = frame[4], id1 = frame[5], id2 = frame[6], id3 = frame[7];
       packet_meter_id = tostrprintf("%02X%02X%02X%02X", id3, id2, id1, id0);
     }
 
