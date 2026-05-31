@@ -242,15 +242,14 @@ void Driver::processContent(Telegram *t)
       // Include measurement type and combinable details.
       ESP_LOGI(
           "APP",
-          "(brummerhoop) dv_entry[%d] key=%s mt=%s dif=%02x dif_type_low=%x vif=%04x vif_default_unit=%d combinables=%zu combinables_raw=%zu value=%s st=%d ta=%d su=%d",
+          "(brummerhoop) dv_entry[%d] key=%s mt=%s dif=%02x dif_type_low=%x vif=%04x combinables=%u combinables_raw=%u value=%s st=%d ta=%d su=%d",
           dumped, key.c_str(),
-          toString(e.measurement_type).c_str(),
-          e.dif_vif_key.dif(),
-          (e.dif_vif_key.dif() & 0x0f),
-          e.vif.intValue(),
-          (int)e.vif.intValue(),
-          e.combinable_vifs.size(),
-          e.combinable_vifs_raw.size(),
+          toString(e.measurement_type),
+          (unsigned)e.dif_vif_key.dif(),
+          (unsigned)(e.dif_vif_key.dif() & 0x0f),
+          (unsigned)e.vif.intValue(),
+          (unsigned)e.combinable_vifs.size(),
+          (unsigned)e.combinable_vifs_raw.size(),
           e.value.c_str(),
           e.storage_nr.intValue(),
           e.tariff_nr.intValue(),
@@ -264,8 +263,9 @@ void Driver::processContent(Telegram *t)
       const auto &key = kv.first;
       const DVEntry &e = kv.second.second;
 
-      bool looksLikeVolume = isInsideVIFRange(e.vif, VIFRange::Volume);
+      bool looksLikeVolume = isInsideVIFRange(e.vif.intValue(), VIFRange::Volume);
       bool hasBackwardComb = e.combinable_vifs_raw.size() > 0 || e.combinable_vifs.size() > 0;
+
 
       if (looksLikeVolume || hasBackwardComb) {
         if (dumped++ >= 60)
