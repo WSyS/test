@@ -246,13 +246,15 @@ void Driver::processContent(Telegram *t)
                  kv.second.second.subunit_nr.intValue());
     }
 
+    // Ensure we extracted field values before reading them.
+    // (In some call paths, processContent may run without prior extraction.)
+    this->processFieldExtractors(t);
+
     // Log decoded values when available.
     // Note: We currently log "status" as the decoded string.
     // Raw status bits are not exposed as a separate raw numeric/string
     // value by this driver abstraction, so we log them as <n/a>.
     {
-        // Field values are populated by MeterCommonImplementation's
-        // field extraction logic. Verify we actually got values.
         FieldInfo *fi_total = this->findFieldInfo("total", Quantity::Volume);
         FieldInfo *fi_total_backwards =
             this->findFieldInfo("total_backwards", Quantity::Volume);
@@ -277,11 +279,12 @@ void Driver::processContent(Telegram *t)
 
         std::string status_raw_bits = "<n/a>";
 
-        ESP_LOGI("APP",
-                 "(brummerhoop) has_total=%d has_total_backwards=%d has_status=%d total_m3=%f total_backwards_m3=%f status_raw_bits=%s status_decoded=%s",
-                 (int)has_total, (int)has_total_backwards, (int)has_status,
-                 total_m3, total_backwards_m3, status_raw_bits.c_str(),
-                 status_decoded.c_str());
+        ESP_LOGI(
+            "APP",
+            "(brummerhoop) has_total=%d has_total_backwards=%d has_status=%d total_m3=%f total_backwards_m3=%f status_raw_bits=%s status_decoded=%s",
+            (int)has_total, (int)has_total_backwards, (int)has_status,
+            total_m3, total_backwards_m3, status_raw_bits.c_str(),
+            status_decoded.c_str());
     }
 
 
