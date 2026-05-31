@@ -21,7 +21,7 @@ static bool ok = registerDriver([](DriverInfo &di)
     di.setName("brummerhoop");
 
     di.setMeterType(MeterType::WaterMeter);
-    di.setDefaultFields("name,id,total_m3,total_backwards_at_set_date_m3,status,timestamp");
+    di.setDefaultFields("name,id,total,total_backwards_at_set_date_m3,status,timestamp");
 
 
     di.addLinkMode(LinkMode::T1);
@@ -105,23 +105,19 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
     ESP_LOGI("APP", "(brummerhoop) extracted meter_id(packet)=%s", packet_meter_id.c_str());
 
 
-
+    if (packet_meter_id == yaml_meter_id)
+    {
+        ESP_LOGI("APP", "(brummerhoop) IDs are the same");
+        if (id_match) {
+            *id_match = true;
+        }
+    }
 
 
     // If the core decided to call processContent for us, it will already be done.
     // Otherwise, invoke it here for consistent field extraction/logging.
     if (out_analyzed != NULL && !out_analyzed->discard)
         processContent(out_analyzed);
-
-
-    if (packet_meter_id == yaml_meter_id)
-    {
-        ESP_LOGI("APP", "(brummerhoop) IDs are the same");
-        //if (id_match) {
-            //*id_match = true;
-        //}
-    }
-
 
 
     return true;
@@ -131,9 +127,6 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
 Driver::Driver(MeterInfo &mi, DriverInfo &di)
     : MeterCommonImplementation(mi, di)
 {
-    ESP_LOGE("APP",
-             "**************** BRUMMERHOOP DRIVER LOADED ****************");
-
 
     addStringFieldWithExtractorAndLookup(
         "status",
