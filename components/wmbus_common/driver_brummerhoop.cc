@@ -116,8 +116,8 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
 
     // If the core decided to call processContent for us, it will already be done.
     // Otherwise, invoke it here for consistent field extraction/logging.
-    if (out_analyzed != NULL && !out_analyzed->discard)
-        processContent(out_analyzed);
+ //   if (out_analyzed != NULL && !out_analyzed->discard)
+ //       processContent(out_analyzed);
 
 
 
@@ -248,18 +248,29 @@ void Driver::processContent(Telegram *t)
     }
 
     // Ensure we extracted field values before reading them.
-    // (In some call paths, processContent may run without prior extraction.)
+    // (Needed so total/status fields are available from dv_entries.)
     this->processFieldExtractors(t);
 
     // Log decoded values when available.
+
     // Note: We currently log "status" as the decoded string.
     // Raw status bits are not exposed as a separate raw numeric/string
     // value by this driver abstraction, so we log them as <n/a>.
     {
+
+        // Field names are declared in the driver constructor with the
+        // quantities:
+        // - total: Quantity::Volume
+        // - total_backwards: Quantity::Volume
+        // - status: Quantity::Text
+        //
+        // Note: We intentionally use get*Value() for the same unit that the
+        // fields are declared with.
         FieldInfo *fi_total = this->findFieldInfo("total", Quantity::Volume);
         FieldInfo *fi_total_backwards =
             this->findFieldInfo("total_backwards", Quantity::Volume);
         FieldInfo *fi_status = this->findFieldInfo("status", Quantity::Text);
+
 
         bool has_total = fi_total && this->hasNumericValue(fi_total);
         bool has_total_backwards =
