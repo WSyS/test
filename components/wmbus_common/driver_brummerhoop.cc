@@ -246,6 +246,35 @@ void Driver::processContent(Telegram *t)
                  kv.second.second.subunit_nr.intValue());
     }
 
+    // Log decoded values when available (raw + decoded).
+    // - total: numeric raw value (m3)
+    // - status: decoded string; raw bits are taken from the dv_entries that
+    //   back the configured "status" extractor.
+    {
+        double total_m3 = NAN;
+        double total_backwards_m3 = NAN;
+        std::string status_decoded;
+        std::string status_raw_bits;
+
+        // Numeric raw values
+        total_m3 = this->getNumericValue("total", Quantity::Volume);
+        total_backwards_m3 = this->getNumericValue("total_backwards", Quantity::Volume);
+
+        // Decoded status (lookup result)
+        status_decoded = this->getStringValue(this->findFieldInfo("status", Quantity::Any));
+
+        // Raw status bits are not directly available as a separate raw field.
+        // Keep it explicit in the log.
+        status_raw_bits = "<n/a>";
+
+        ESP_LOGI("APP", "(brummerhoop) total_raw_m3=%f total_backwards_raw_m3=%f status_raw_bits=%s status_decoded=%s",
+                 total_m3,
+                 total_backwards_m3,
+                 status_raw_bits.c_str(),
+                 status_decoded.c_str());
+    }
+
+
     // Field extraction is implemented via registered field extractors
     // (MeterCommonImplementation::processFieldExtractors). If dv_entries is
     // empty, generic parsing failed for this telegram; do not attempt unsafe
@@ -253,11 +282,10 @@ void Driver::processContent(Telegram *t)
 
     (void)t;
 
-
 }
 
-
-    // (Other helper methods/fields live in MeterCommonImplementation)
+// (Other helper methods/fields live in MeterCommonImplementation)
 
 } // namespace
+
 
