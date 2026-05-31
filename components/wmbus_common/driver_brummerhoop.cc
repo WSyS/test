@@ -258,7 +258,7 @@ void Driver::processContent(Telegram *t)
         FieldInfo *fi_total = this->findFieldInfo("total", Quantity::Volume);
         FieldInfo *fi_total_backwards =
             this->findFieldInfo("total_backwards", Quantity::Volume);
-        FieldInfo *fi_status = this->findFieldInfo("status", Quantity::Unknown);
+        FieldInfo *fi_status = this->findFieldInfo("status", Quantity::Text);
 
         bool has_total = fi_total && this->hasNumericValue(fi_total);
         bool has_total_backwards =
