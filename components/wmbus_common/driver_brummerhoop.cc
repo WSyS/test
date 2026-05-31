@@ -266,8 +266,8 @@ void Driver::processContent(Telegram *t)
             fi_total_backwards && this->hasNumericValue(fi_total_backwards);
         bool has_status = fi_status && this->hasStringValue(fi_status);
 
-        double total_m3 = 0.0;
-        double total_backwards_m3 = 0.0;
+        double total_m3 = -999.9;
+        double total_backwards_m3 = -999.9;
         std::string status_decoded;
 
         if (has_total)
