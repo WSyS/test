@@ -229,23 +229,58 @@ void Driver::processContent(Telegram *t)
 
     ESP_LOGW("APP", "(brummerhoop) dv_entries size=%d", (int)t->dv_entries.size());
 
-    // Dump a small part of dv_entries to be able to wire the correct
-    // extractors (for total_m3, backward-at-set-date, status).
-    // Keep bounded to avoid log spam.
+    // Dump dv_entries so we can determine which keys correspond to
+    // total_m3 and total_backwards_m3.
     int dumped = 0;
     for (auto &kv : t->dv_entries) {
+      if (dumped++ >= 120)
+        break;
 
-        if (dumped++ >= 25)
-            break;
-        // kv.first: dif+vif key
-        // kv.second: DVEntry
-        ESP_LOGI("APP", "(brummerhoop) dv_entry[%d] key=%s value=%s mt_vif=%x st=%d ta=%d su=%d",
-                 dumped, kv.first.c_str(), kv.second.second.value.c_str(),
-                 kv.second.second.vif.intValue(),
-                 kv.second.second.storage_nr.intValue(),
-                 kv.second.second.tariff_nr.intValue(),
-                 kv.second.second.subunit_nr.intValue());
+      const auto &key = kv.first;
+      const DVEntry &e = kv.second.second;
+
+      // Include measurement type and combinable details.
+      ESP_LOGI(
+          "APP",
+          "(brummerhoop) dv_entry[%d] key=%s mt=%s dif=%02x dif_type_low=%x vif=%04x vif_default_unit=%d combinables=%zu combinables_raw=%zu value=%s st=%d ta=%d su=%d",
+          dumped, key.c_str(),
+          toString(e.measurement_type).c_str(),
+          e.dif_vif_key.dif(),
+          (e.dif_vif_key.dif() & 0x0f),
+          e.vif.intValue(),
+          (int)e.vif.intValue(),
+          e.combinable_vifs.size(),
+          e.combinable_vifs_raw.size(),
+          e.value.c_str(),
+          e.storage_nr.intValue(),
+          e.tariff_nr.intValue(),
+          e.subunit_nr.intValue());
     }
+
+    // Targeted scan: log any entry that looks like it could be backward flow
+    // (combinable) and any entry with a volume VIF (0x13 typically).
+    dumped = 0;
+    for (auto &kv : t->dv_entries) {
+      const auto &key = kv.first;
+      const DVEntry &e = kv.second.second;
+
+      bool looksLikeVolume = isInsideVIFRange(e.vif, VIFRange::Volume);
+      bool hasBackwardComb = e.combinable_vifs_raw.size() > 0 || e.combinable_vifs.size() > 0;
+
+      if (looksLikeVolume || hasBackwardComb) {
+        if (dumped++ >= 60)
+          break;
+
+        ESP_LOGI(
+            "APP",
+            "(brummerhoop) candidate dv_entry key=%s dif=%02x vif=%04x value=%s st=%d ta=%d su=%d combinable_vifs=%zu combinable_vifs_raw=%zu",
+            key.c_str(), e.dif_vif_key.dif(), e.vif.intValue(), e.value.c_str(),
+            e.storage_nr.intValue(), e.tariff_nr.intValue(),
+            e.subunit_nr.intValue(), e.combinable_vifs.size(),
+            e.combinable_vifs_raw.size());
+      }
+    }
+
 
     // Ensure we extracted field values before reading them.
     // (Needed so total/status fields are available from dv_entries.)
