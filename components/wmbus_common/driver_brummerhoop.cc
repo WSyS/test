@@ -88,7 +88,7 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
     std::vector<AddressExpression> aexps = this->addressExpressions();
     std::string yaml_meter_id = aexps.size() > 0 ? aexps[0].id : "0";
     yaml_meter_id = std::to_string(std::stoul(yaml_meter_id, nullptr, 16));
-    ESP_LOGI("APP", "(izar_rc) configured meter_id(yaml)=%s", yaml_meter_id.c_str());
+    ESP_LOGI("APP", "(brummerhoop) configured meter_id(yaml)=%s", yaml_meter_id.c_str());
 
 
     std::string packet_meter_id;
@@ -102,12 +102,12 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
     }
 
 
-    ESP_LOGI("APP", "(izar_rc) extracted meter_id(packet)=%s", packet_meter_id.c_str());
+    ESP_LOGI("APP", "(brummerhoop) extracted meter_id(packet)=%s", packet_meter_id.c_str());
 
 
     if (packet_meter_id == yaml_meter_id)
     {
-        ESP_LOGI("APP", "All the same");
+        ESP_LOGI("APP", "(brummerhoop) IDs are the same");
         if (id_match) {
             *id_match = true;
         }
