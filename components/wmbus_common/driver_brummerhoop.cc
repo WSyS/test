@@ -66,14 +66,14 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
     // if it ever gets called.
     // Note: Since this driver should be matched by dispatcher, this should run.
 
+    bool parent_ok = 0;
+
     // Call parent to ensure Telegram is analyzed.
-    bool parent_ok = MeterCommonImplementation::handleTelegram(about, input_frame,
+    parent_ok = MeterCommonImplementation::handleTelegram(about, input_frame,
                                                                  simulated, addresses,
                                                                  id_match, out_analyzed);
 
     
-
-    bool parent_ok = 0;
 
     ESP_LOGI("APP", "(brummerhoop) handleTelegram parent_ok=%d out_analyzed=%p discard=%d",
              (int)parent_ok, (void *)out_analyzed,
