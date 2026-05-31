@@ -79,6 +79,44 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
              (int)parent_ok, (void *)out_analyzed,
              out_analyzed ? (int)out_analyzed->discard : -1);
 
+
+
+
+    // Log the configured meter_id (from YAML: wmbus_meter.meter_id) if available.
+    // The meter_id configured in YAML is fed into MeterInfo::parse(..., aes="id + "," ...)
+    // and ends up embedded in the configured address expression id.
+    std::vector<AddressExpression> aexps = this->addressExpressions();
+    std::string yaml_meter_id = aexps.size() > 0 ? aexps[0].id : "0";
+    yaml_meter_id = std::to_string(std::stoul(yaml_meter_id, nullptr, 16));
+    ESP_LOGI("APP", "(izar_rc) configured meter_id(yaml)=%s", yaml_meter_id.c_str());
+
+
+    std::string packet_meter_id;
+
+    const std::vector<uchar> &frame = input_frame;
+    if (frame.size() > 10)
+    {
+      // Bytes frame[4..7] correspond to meter id bytes (endianness adjusted for addressExpressions matching).
+      uchar id0 = frame[6], id1 = frame[7], id2 = frame[8], id3 = frame[9];
+      packet_meter_id = tostrprintf("%02X%02X%02X%02X", id3, id2, id1, id0);
+    }
+
+
+    ESP_LOGI("APP", "(izar_rc) extracted meter_id(packet)=%s", packet_meter_id.c_str());
+
+
+    if (packet_meter_id == yaml_meter_id)
+    {
+        ESP_LOGI("APP", "All the same");
+        if (id_match) {
+            *id_match = true;
+        }
+    }
+
+
+
+
+
     // If the core decided to call processContent for us, it will already be done.
     // Otherwise, invoke it here for consistent field extraction/logging.
     if (out_analyzed != NULL && !out_analyzed->discard)
@@ -187,48 +225,6 @@ void Driver::processContent(Telegram *t)
         return;
     }
 
-    // Debug: log configured meter_id(s) and extracted packet meter id for
-    // easier troubleshooting when Home Assistant reports that telegrams are
-    // not handled.
-
-    //
-    // Similar logic exists in driver_izar_rc.cc.
-    std::vector<AddressExpression> aexps = this->addressExpressions();
-    std::string yaml_meter_id = aexps.size() > 0 ? aexps[0].id : "0";
-    yaml_meter_id = std::to_string(std::stoul(yaml_meter_id, nullptr, 16));
-
-    std::string packet_meter_id;
-    if (t->frame.size() > 10)
-    {
-        ESP_LOGI("APP", "(brummerhoop) frame.size()>10");
-        // Best-effort: try multiple common offsets for the meter id.
-        // Different parts of the stack may present the frame with different
-        // trimming/endianness.
-        //
-        // Keep it deterministic so logs help identify the correct mapping.
-        auto try_pack = [&](size_t o0, size_t o1, size_t o2, size_t o3, const char *tag) {
-            if (o3 >= t->frame.size())
-                return;
-            uchar id0 = t->frame[o0];
-            uchar id1 = t->frame[o1];
-            uchar id2 = t->frame[o2];
-            uchar id3 = t->frame[o3];
-            std::string cand = tostrprintf("%02X%02X%02X%02X", id3, id2, id1, id0);
-            ESP_LOGI("APP", "(brummerhoop) meter_id(packet) cand[%s]=%s", tag, cand.c_str());
-            if (packet_meter_id.empty())
-                packet_meter_id = cand;
-        };
-
-        // Common attempts (from earlier heuristic + typical variants).
-        try_pack(6, 7, 8, 9, "o6_9");
-        try_pack(4, 5, 6, 7, "o4_7");
-        try_pack(7, 8, 9, 10, "o7_10");
-        try_pack(8, 9, 10, 11, "o8_11");
-    }
-
-
-    ESP_LOGI("APP", "(brummerhoop) configured meter_id(yaml)=%s", yaml_meter_id.c_str());
-    ESP_LOGI("APP", "(brummerhoop) extracted meter_id(packet)=%s", packet_meter_id.c_str());
 
 
     // Additional conservative rule: if the decoded format is clearly not a
