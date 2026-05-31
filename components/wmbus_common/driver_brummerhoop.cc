@@ -268,11 +268,12 @@ void Driver::processContent(Telegram *t)
         std::string status_decoded;
 
         if (has_total)
-            total_m3 = this->getNumericValue(fi_total);
+            total_m3 = this->getNumericValue(fi_total, Unit::M3);
         if (has_total_backwards)
-            total_backwards_m3 = this->getNumericValue(fi_total_backwards);
+            total_backwards_m3 =
+                this->getNumericValue(fi_total_backwards, Unit::M3);
         if (has_status)
-            status_decoded = this->getStringValue(fi_status);
+            status_decoded = this->getStringValue(fi_status->field_info);
 
         std::string status_raw_bits = "<n/a>";
 
