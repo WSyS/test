@@ -105,15 +105,6 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
     ESP_LOGI("APP", "(brummerhoop) extracted meter_id(packet)=%s", packet_meter_id.c_str());
 
 
-    if (packet_meter_id == yaml_meter_id)
-    {
-        ESP_LOGI("APP", "(brummerhoop) IDs are the same");
-        if (id_match) {
-            *id_match = true;
-        }
-    }
-
-
 
 
 
@@ -123,6 +114,16 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
         processContent(out_analyzed);
 
 
+    if (packet_meter_id == yaml_meter_id)
+    {
+        ESP_LOGI("APP", "(brummerhoop) IDs are the same");
+        if (id_match) {
+            *id_match = true;
+        }
+    }
+
+
+    
     return true;
 
 }
