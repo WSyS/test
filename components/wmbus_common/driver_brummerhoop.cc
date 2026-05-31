@@ -67,9 +67,9 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
     // Note: Since this driver should be matched by dispatcher, this should run.
 
     // Call parent to ensure Telegram is analyzed.
-    //bool parent_ok = MeterCommonImplementation::handleTelegram(about, input_frame,
-    //                                                             simulated, addresses,
-    //                                                             id_match, out_analyzed);
+    bool parent_ok = MeterCommonImplementation::handleTelegram(about, input_frame,
+                                                                 simulated, addresses,
+                                                                 id_match, out_analyzed);
 
     
 
