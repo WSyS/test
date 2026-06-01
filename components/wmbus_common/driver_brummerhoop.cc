@@ -74,39 +74,42 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
                                                                  simulated, addresses,
                                                                  id_match, out_analyzed);
 
-    // Match logic: meter_id in YAML is the meter serial number (dll-id).
-    // Only mark id_match when ids are equal; do not affect decryption key.
-    if (id_match)
-    {
-        const std::vector<AddressExpression> &aexps = this->addressExpressions();
-        std::string yaml_meter_id_hex = (aexps.size() > 0) ? aexps[0].id : "0";
-        unsigned long yaml_meter_id = 0;
-        if (yaml_meter_id_hex.size() > 0)
+        // Keep id_match matching logic minimal and exception-free.
+        // The core already extracted/compared ids; we only force-match when
+        // configured meter_id (YAML) equals the extracted dll-id from the
+        // telegram payload.
+        if (id_match)
         {
-            const char *p = yaml_meter_id_hex.c_str();
-            yaml_meter_id = strtoul(p, nullptr, 16);
+            const std::vector<AddressExpression> &aexps = this->addressExpressions();
+            std::string yaml_meter_id_hex = (aexps.size() > 0) ? aexps[0].id : "0";
+
+            // yaml meter id from addressExpressions is hex without "0x".
+            unsigned long yaml_meter_id = 0;
+            if (yaml_meter_id_hex.size() > 0)
+                yaml_meter_id = strtoul(yaml_meter_id_hex.c_str(), nullptr, 16);
+
+            // dll-id in trimmed frame is at positions 4..7 (little-endian bytes)
+            // as also used by the core address matcher.
+            if (input_frame.size() >= 8)
+            {
+                uchar b0 = input_frame[4];
+                uchar b1 = input_frame[5];
+                uchar b2 = input_frame[6];
+                uchar b3 = input_frame[7];
+
+                unsigned long packet_meter_id =
+                    (unsigned long)b0 |
+                    ((unsigned long)b1 << 8) |
+                    ((unsigned long)b2 << 16) |
+                    ((unsigned long)b3 << 24);
+
+                ESP_LOGI("APP", "(brummerhoop) configured meter_id(yaml)=%lu packet meter_id(packet)=%lu",
+                         yaml_meter_id, packet_meter_id);
+
+                if (packet_meter_id == yaml_meter_id)
+                    *id_match = true;
+            }
         }
-
-        std::string packet_meter_id;
-
-        const std::vector<uchar> &frame = input_frame;
-        if (frame.size() > 10)
-        {
-        // Bytes frame[4..7] correspond to meter id bytes (endianness adjusted for addressExpressions matching).
-        uchar id0 = frame[4], id1 = frame[5], id2 = frame[6], id3 = frame[7];
-        packet_meter_id = tostrprintf("%02X%02X%02X%02X", id3, id2, id1, id0);
-        }
-
-
-	        unsigned long packet_meter_id_ul = 0;
-	        if (packet_meter_id.size() > 0)
-	            packet_meter_id_ul = strtoul(packet_meter_id.c_str(), nullptr, 16);
-
-	        ESP_LOGI("APP", "(brummerhoop) configured meter_id(yaml)=%lu packet meter_id(packet)=%lu",
-	                 yaml_meter_id, packet_meter_id_ul);
-	        if (packet_meter_id_ul == yaml_meter_id)
-	            *id_match = true;
-    }
 
     if (out_analyzed != NULL && !out_analyzed->discard)
         processContent(out_analyzed);
