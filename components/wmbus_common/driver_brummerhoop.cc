@@ -365,7 +365,13 @@ void Driver::processContent(Telegram *t)
             //
             // NOTE: This fallback is intentionally conservative: it only tries
             // to decode the exact value byte-lengths for known DIF formats.
-            const std::vector<uchar> &frame = t->frame;
+            // Use the telegram payload (content area) rather than the full
+            // telegram frame. This is more consistent with how dvparser
+            // extracts DIF/VIF entries after trimming CRCs.
+            std::vector<uchar> payload;
+            t->extractPayload(&payload);
+            const std::vector<uchar> &frame = payload;
+
 
             auto parse_u32_le_at = [&](size_t pos, bool *ok) -> double {
                 if (pos + 4 > frame.size()) {
