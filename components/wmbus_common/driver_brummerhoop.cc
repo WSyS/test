@@ -16,8 +16,13 @@ struct Driver : public virtual MeterCommonImplementation
 
     void processContent(Telegram *t) override;
 private:
-    std::vector<uchar> last_frame_;
+    // Avoid heap allocations / capacity churn on ESP32.
+    // Your trimmed frames are ~66 bytes (78 bytes raw incl. radio framing).
+    static constexpr size_t LAST_FRAME_MAX = 100;
+    std::array<uchar, LAST_FRAME_MAX> last_frame_bytes_{};
+    size_t last_frame_len_{};
 };
+
 
 static bool ok = registerDriver([](DriverInfo &di)
 {
@@ -60,7 +65,7 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
                            bool simulated, std::vector<Address> *addresses,
                            bool *id_match, Telegram *out_analyzed)
 {
-    last_frame_ = input_frame;
+
 
     ESP_LOGI("APP", "(brummerhoop) handleTelegram entered simulated=%d frame_size=%d id_match_ptr=%p addresses_ptr=%p",
              (int)simulated, (int)input_frame.size(), (void *)id_match, (void *)addresses);
@@ -147,13 +152,15 @@ void Driver::processContent(Telegram *t)
     // Only activate when dv_entries are empty (as requested).
     ESP_LOGW("APP", "(brummerhoop) fallback activated: dv_entries empty");
 
-    if (last_frame_.size() < 32)
+    if (last_frame_len_ < 32)
         return;
+
 
     // Key derivation:
     // YAML uses `key: !secret ...` => MeterInfo::key.
     // meters.cc loads it into meter_keys_.confidentiality_key (16 bytes).
     // We reuse that decoded key here.
+
     //
     // meter_keys_.confidentiality_key is stored as binary bytes already.
     // If key was not configured, fallback stays inactive.
@@ -185,17 +192,20 @@ void Driver::processContent(Telegram *t)
     // (tpl-cfg shows AES_CBC_IV). In practice, for our received trimmed frame
     // we use the first 16 bytes of last_frame_ as IV.
     // Ciphertext: everything after the first 16 bytes.
-    if (last_frame_.size() <= 16)
+    if (last_frame_len_ <= 16)
         return;
 
+
     std::array<uint8_t, 16> iv_{};
-    memcpy(iv_.data(), last_frame_.data(), 16);
+    memcpy(iv_.data(), last_frame_bytes_.data(), 16);
+
 
     // Try to locate decrypt check bytes 0x2F 0x2F inside last_frame_.
     // We use the first occurrence as a hint to split IV vs ciphertext.
     size_t check_pos = std::numeric_limits<size_t>::max();
-    for (size_t p = 0; p + 1 < last_frame_.size(); p++) {
-        if (last_frame_[p] == 0x2F && last_frame_[p + 1] == 0x2F) {
+    for (size_t p = 0; p + 1 < last_frame_len_; p++) {
+        if (last_frame_bytes_[p] == 0x2F && last_frame_bytes_[p + 1] == 0x2F) {
+
             check_pos = p;
             break;
         }
@@ -227,10 +237,12 @@ void Driver::processContent(Telegram *t)
     constexpr size_t MAX_CT = 64; // bytes after splitting
 
     size_t ct_start = (check_pos != std::numeric_limits<size_t>::max()) ? (check_pos + 2) : 16;
-    if (ct_start >= last_frame_.size())
+    if (ct_start >= last_frame_len_)
         return;
 
-    size_t ct_len = last_frame_.size() - ct_start;
+
+    size_t ct_len = last_frame_len_ - ct_start;
+
     if (ct_len > MAX_CT)
         ct_len = MAX_CT;
 
@@ -240,7 +252,8 @@ void Driver::processContent(Telegram *t)
     uint8_t decrypted_buf[MAX_CT];
 
     for (size_t i = 0; i < ct_len; i++)
-        ciphertext_buf[i] = (uint8_t)last_frame_[ct_start + i];
+        ciphertext_buf[i] = (uint8_t)last_frame_bytes_[ct_start + i];
+
 
     AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
                            key_.data(), iv_.data());
