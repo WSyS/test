@@ -374,25 +374,17 @@ void Driver::processContent(Telegram *t)
             // extracts DIF/VIF entries after trimming CRCs.
             const std::vector<uchar> &frame = last_frame_;
 
-            ESP_LOGI("APP",
-                     "(brummerhoop) fallback scan frame_size=%u",
-                     (unsigned)frame.size());
-
-            char line[500];
-
-            for (size_t i = 0; i < frame.size(); i += 16) {
-                int pos = snprintf(line, sizeof(line), "%04u: ", (unsigned)i);
-
-                for (size_t j = i; j < i + 16 && j < frame.size(); ++j) {
-                    pos += snprintf(line + pos,
-                                    sizeof(line) - pos,
-                                    "%02X ",
-                                    frame[j]);
-                }
-
-                ESP_LOGI("APP", "Telegram: %s", line);
+            
+            std::string s;
+            for (auto b : frame) {
+                char buf[4];
+                sprintf(buf, "%02X ", b);
+                s += buf;
             }
 
+            ESP_LOGI("APP", "(brummerhoop) fallback scan frame_size=%u data=%s",
+                    (unsigned)frame.size(),
+                    s.c_str());
 
 
             auto parse_u32_le_at = [&](size_t pos, bool *ok) -> double {
