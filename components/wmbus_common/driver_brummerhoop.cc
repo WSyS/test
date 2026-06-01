@@ -191,10 +191,53 @@ void Driver::processContent(Telegram *t)
     std::array<uint8_t, 16> iv_{};
     memcpy(iv_.data(), last_frame_.data(), 16);
 
+    // Try to locate decrypt check bytes 0x2F 0x2F inside last_frame_.
+    // We use the first occurrence as a hint to split IV vs ciphertext.
+    size_t check_pos = std::numeric_limits<size_t>::max();
+    for (size_t p = 0; p + 1 < last_frame_.size(); p++) {
+        if (last_frame_[p] == 0x2F && last_frame_[p + 1] == 0x2F) {
+            check_pos = p;
+            break;
+        }
+    }
+
+    if (check_pos != std::numeric_limits<size_t>::max())
+        ESP_LOGI("APP", "(brummerhoop) decrypt check 0x2F2F found at pos=%u", (unsigned)check_pos);
+    else
+        ESP_LOGW("APP", "(brummerhoop) decrypt check 0x2F2F not found in last_frame_");
+
+    // Debug log current IV candidate
+    {
+        char iv_hex[3 * 16 + 1];
+        size_t p = 0;
+        for (size_t i = 0; i < 16; i++) {
+            int n = snprintf(&iv_hex[p], sizeof(iv_hex) - p, "%02X", (unsigned)iv_[i]);
+            if (n <= 0) break;
+            p += (size_t)n;
+        }
+        iv_hex[sizeof(iv_hex) - 1] = '\0';
+        ESP_LOGI("APP", "(brummerhoop) IV candidate(first16)=%s", iv_hex);
+    }
+
     std::vector<uint8_t> ciphertext;
-    ciphertext.reserve(last_frame_.size() - 16);
-    for (size_t i = 16; i < last_frame_.size(); i++)
-        ciphertext.push_back((uint8_t)last_frame_[i]);
+    if (check_pos != std::numeric_limits<size_t>::max()) {
+        // Heuristic: ciphertext likely starts after the two decrypt check bytes.
+        size_t ct_start = check_pos + 2;
+        if (ct_start < last_frame_.size()) {
+            ciphertext.reserve(last_frame_.size() - ct_start);
+            for (size_t i = ct_start; i < last_frame_.size(); i++)
+                ciphertext.push_back((uint8_t)last_frame_[i]);
+        }
+    }
+
+    if (ciphertext.empty()) {
+        // Fallback to previous split: everything after first 16 bytes.
+        ciphertext.reserve(last_frame_.size() - 16);
+        for (size_t i = 16; i < last_frame_.size(); i++)
+            ciphertext.push_back((uint8_t)last_frame_[i]);
+        ESP_LOGW("APP", "(brummerhoop) ciphertext split fallback to first16|rest (ct_len=%u)", (unsigned)ciphertext.size());
+    }
+
 
     std::vector<uint8_t> decrypted(ciphertext.size());
 
