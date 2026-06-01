@@ -253,11 +253,13 @@ void Driver::processContent(Telegram *t)
 
 
 
-    ESP_LOGI("APP", "(brummerhoop) decrypted payload len=%u", (unsigned)decrypted.size());
+    ESP_LOGI("APP", "(brummerhoop) decrypted payload len=%u", (unsigned)decrypted_len);
+
 
     // Debug: print first bytes of decrypted payload (avoid huge logs)
     {
-        size_t dump_len = decrypted.size() < 32 ? decrypted.size() : 32;
+        size_t dump_len = decrypted_len < 32 ? decrypted_len : 32;
+
         char buf[3 * 32 + 1];
         size_t p = 0;
         for (size_t di = 0; di < dump_len; di++) {
@@ -276,7 +278,8 @@ void Driver::processContent(Telegram *t)
     // total_backwards: DIF=0x44, VIF=0x93, followed by 2 data bytes (little endian)
     //                   scale /1000.
     auto parse_u32_le_at = [&](size_t pos, bool *ok) -> uint32_t {
-        if (pos + 4 > decrypted.size()) {
+        if (pos + 4 > decrypted_len) {
+
             *ok = false;
             return 0;
         }
@@ -289,7 +292,8 @@ void Driver::processContent(Telegram *t)
     };
 
     auto parse_u16_le_at = [&](size_t pos, bool *ok) -> uint16_t {
-        if (pos + 2 > decrypted.size()) {
+        if (pos + 2 > decrypted_len) {
+
             *ok = false;
             return 0;
         }
@@ -302,7 +306,8 @@ void Driver::processContent(Telegram *t)
     bool have_total = false;
     bool have_total_backwards = false;
 
-    for (size_t i = 0; i + 6 < decrypted.size(); i++)
+    for (size_t i = 0; i + 6 < decrypted_len; i++)
+
     {
         if (!have_total && decrypted[i] == 0x04 && decrypted[i + 1] == 0x13)
         {
