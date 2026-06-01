@@ -186,6 +186,8 @@ void Driver::processContent(Telegram *t)
     AES_CBC_decrypt_buffer(decrypted.data(), ciphertext.data(), (uint32_t)ciphertext.size(),
                            key_.data(), iv_.data());
 
+
+
     ESP_LOGI("APP", "(brummerhoop) decrypted payload len=%u", (unsigned)decrypted.size());
 
     // Search decrypted payload for known patterns:
