@@ -87,24 +87,16 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
             yaml_meter_id = strtoul(p, nullptr, 16);
         }
 
-        std::string packet_meter_id_hex;
-        if (input_frame.size() > 8)
+        std::string packet_meter_id;
+
+        const std::vector<uchar> &frame = input_frame;
+        if (frame.size() > 10)
         {
-            // dll-id bytes are located at fixed positions in the trimmed payload.
-            // input_frame[] is the frame without link-layer CRCs.
-            uchar id0 = input_frame[4];
-            uchar id1 = input_frame[5];
-            uchar id2 = input_frame[6];
-            uchar id3 = input_frame[7];
-            // addressExpressions expect human-readable dll-id in BCD order.
-            packet_meter_id_hex = tostrprintf("%02X%02X%02X%02X", id3, id2, id1, id0);
+        // Bytes frame[4..7] correspond to meter id bytes (endianness adjusted for addressExpressions matching).
+        uchar id0 = frame[4], id1 = frame[5], id2 = frame[6], id3 = frame[7];
+        packet_meter_id = tostrprintf("%02X%02X%02X%02X", id3, id2, id1, id0);
         }
 
-        unsigned long packet_meter_id = 0;
-        if (packet_meter_id_hex.size() > 0)
-        {
-            packet_meter_id = strtoul(packet_meter_id_hex.c_str(), nullptr, 16);
-        }
 
         ESP_LOGI("APP", "(brummerhoop) configured meter_id(yaml)=%lu packet meter_id(packet)=%lu",
                  yaml_meter_id, packet_meter_id);
