@@ -151,21 +151,32 @@ void Driver::processContent(Telegram *t)
         return;
 
     // Key derivation:
-    // MeterInfo::parse(..., aes="id + "," key) feeds the AES key into the
-    // address expressions id. In this driver we assume addressExpressions()[0]
-    // contains the full 16-byte AES key as 32 hex chars.
-    std::vector<AddressExpression> aexps = this->addressExpressions();
-    std::string key_hex = (aexps.size() > 0) ? aexps[0].id : "";
+    // YAML uses `key: !secret ...` => MeterInfo::key.
+    // meters.cc loads it into meter_keys_.confidentiality_key (16 bytes).
+    // We reuse that decoded key here.
+    //
+    // meter_keys_.confidentiality_key is stored as binary bytes already.
+    // If key was not configured, fallback stays inactive.
 
-    ESP_LOGI("APP", "(brummerhoop) aes key_hex candidate='%s' (len=%u)",
-             key_hex.c_str(), (unsigned)key_hex.size());
-
-    std::array<uint8_t, 16> key_{};
-    if (!hexToBytesFixed16(key_hex, key_))
+    auto key_bytes = meterKeys();
+    if (key_bytes == NULL)
     {
-        ESP_LOGE("APP", "(brummerhoop) AES key hex must be 32 chars for AES-128");
+        ESP_LOGE("APP", "(brummerhoop) AES fallback: meterKeys() is NULL");
         return;
     }
+
+    // meterKeys() returns MeterKeys*; confidentiality_key is 16 bytes.
+    // Copy into our fixed array.
+    std::array<uint8_t, 16> key_{};
+    memcpy(key_.data(), key_bytes->confidentiality_key, 16);
+
+    // Log as hex for debugging.
+    char key_hex[33];
+    for (size_t i = 0; i < 16; i++)
+        sprintf(&key_hex[i * 2], "%02X", key_.data()[i]);
+    key_hex[32] = '\0';
+    ESP_LOGI("APP", "(brummerhoop) AES key loaded (len=32) %s", key_hex);
+
 
     // For Waterstarm/EN13757-3 AES-CBC: the IV is carried in the telegram payload
     // (tpl-cfg shows AES_CBC_IV). In practice, for our received trimmed frame
