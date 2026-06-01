@@ -457,8 +457,8 @@ void Driver::processContent(Telegram *t)
         // end fallback search
 
     } // end if (!has_total || !has_total_backwards)
+
     } // end if (t->dv_entries.size() == 0)
-    }
     (void)t;
 
 }
