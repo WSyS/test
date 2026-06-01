@@ -1,8 +1,7 @@
-- [x] Update components/wmbus_common/driver_brummerhoop.cc to expose total_m3, total_backwards_at_set_date_m3, status
-
-- [x] Implement minimal extraction in brummerhoop::processContent() (Option B) while keeping anti-crash safety checks
-
-
-- [ ] Build/compile or run existing checks to ensure no errors
-
+- [ ] Scan brummerhoop telegram layout and implement fallback extraction when t->dv_entries is empty
+- [ ] Update components/wmbus_common/driver_brummerhoop.cc to setNumericValue("total", Unit::M3, ...) and setNumericValue("total_backwards", Unit::M3, ...)
+- [ ] Keep existing dv_entries extraction as primary path; fallback only when extraction failed
+- [ ] Build/compile to ensure no errors
 - [ ] Verify Home Assistant field names align with project conventions
+
+

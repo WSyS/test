@@ -336,10 +336,106 @@ void Driver::processContent(Telegram *t)
     }
 
 
-    // Field extraction is implemented via registered field extractors
-    // (MeterCommonImplementation::processFieldExtractors). If dv_entries is
-    // empty, generic parsing failed for this telegram; do not attempt unsafe
-    // custom parsing here.
+    // Fallback: some Brummerhoop telegrams do not get dv_entries populated
+    // correctly, so the generic field extractor cannot find `total`.
+    //
+    // In that case we best-effort search for the known DIF/VIF patterns
+    // we observed in real telegrams:
+    //   - total_m3: DIF=0x04 (32-bit int/binary) + VIF=0x13 (Volume l)
+    //   - total_backwards_at_set_date_m3: DIF=0x44 (16-bit) + VIF=0x93 with
+    //     BackwardFlow combinable (combinable VIF raw 0x3C in our traces)
+    //
+    // We only set fields if they are missing already.
+    if ((!has_total || !has_total_backwards) && t && t->dv_entries.size() == 0) {
+        // We can access the raw decoded telegram bytes via t->frame.
+        // Layout of `frame` depends on link-layer, but dvparser already logged
+        // the relevant trimmed DIF/VIF entries; those DIF/VIF bytes appear
+        // in order in `frame` as well.
+        //
+        // NOTE: This fallback is intentionally conservative: it only tries
+        // to decode the exact value byte-lengths for known DIF formats.
+        const std::vector<uchar> &frame = t->frame;
+
+        auto parse_u32_le_at = [&](size_t pos, bool *ok) -> double {
+            if (pos + 4 > frame.size()) {
+                *ok = false;
+                return 0.0;
+            }
+            uint32_t raw = (uint32_t(frame[pos + 0])) |
+                           (uint32_t(frame[pos + 1]) << 8) |
+                           (uint32_t(frame[pos + 2]) << 16) |
+                           (uint32_t(frame[pos + 3]) << 24);
+            *ok = true;
+            return raw;
+        };
+        auto parse_u16_le_at = [&](size_t pos, bool *ok) -> double {
+            if (pos + 2 > frame.size()) {
+                *ok = false;
+                return 0.0;
+            }
+            uint16_t raw = uint16_t(frame[pos + 0]) |
+                            (uint16_t(frame[pos + 1]) << 8);
+            *ok = true;
+            return raw;
+        };
+
+        // total: search for DIF 0x04 followed by VIF 0x13.
+        // We expect 4 data bytes after DIF/VIF.
+        if (!has_total) {
+            bool found = false;
+            for (size_t i = 0; i + 1 + 4 < frame.size(); i++) {
+                if (frame[i] == 0x04 && frame[i + 1] == 0x13) {
+                    bool okv = false;
+                    double raw = parse_u32_le_at(i + 2, &okv);
+                    if (okv) {
+                        // For VIF 0x13 (Volume l) the scale in our traces
+                        // corresponds to dividing by 1000 => m³.
+                        // So raw 0x0000000E == 14 l => 0.014 m³.
+                        double total_m3 = raw / 1000.0;
+                        setNumericValue("total", Unit::M3, total_m3);
+                        ESP_LOGI("APP", "(brummerhoop) fallback total_m3=%.6f at pos=%u raw=%.0f",
+                                 total_m3, (unsigned)i, raw);
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (!found) ESP_LOGW("APP", "(brummerhoop) fallback total not found in frame");
+        }
+
+        // total_backwards_at_set_date_m3: search DIF 0x44 and VIF 0x93.
+        // Expect 2 data bytes after DIF/VIF.
+        if (!has_total_backwards) {
+            bool found = false;
+            for (size_t i = 0; i + 1 + 2 < frame.size(); i++) {
+                if (frame[i] == 0x44 && frame[i + 1] == 0x93) {
+                    // additionally require BackwardFlow combinable marker 0x3C somewhere
+                    // right after (best-effort) to reduce false positives.
+                    bool has_comb = false;
+                    for (size_t j = i; j < i + 6 && j < frame.size(); j++) {
+                        if (frame[j] == 0x3C) {
+                            has_comb = true;
+                            break;
+                        }
+                    }
+                    if (!has_comb) continue;
+
+                    bool okv = false;
+                    double raw = parse_u16_le_at(i + 2, &okv);
+                    if (okv) {
+                        double total_back_m3 = raw / 1000.0;
+                        setNumericValue("total_backwards", Unit::M3, total_back_m3);
+                        ESP_LOGI("APP", "(brummerhoop) fallback total_backwards_m3=%.6f at pos=%u raw=%.0f",
+                                 total_back_m3, (unsigned)i, raw);
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (!found)
+                ESP_LOGW("APP", "(brummerhoop) fallback total_backwards not found in frame");
+        }
+    }
 
     (void)t;
 
