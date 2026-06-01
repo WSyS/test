@@ -367,7 +367,8 @@ void Driver::processContent(Telegram *t)
             // to decode the exact value byte-lengths for known DIF formats.
             const std::vector<uchar> &frame = t->frame;
 
-        auto parse_u32_le_at = [&](size_t pos, bool *ok) -> double {
+            auto parse_u32_le_at = [&](size_t pos, bool *ok) -> double {
+
             if (pos + 4 > frame.size()) {
                 *ok = false;
                 return 0.0;
@@ -455,5 +456,6 @@ void Driver::processContent(Telegram *t)
 // (Other helper methods/fields live in MeterCommonImplementation)
 
 } // namespace
+
 
 
