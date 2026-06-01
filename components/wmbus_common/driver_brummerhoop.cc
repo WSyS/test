@@ -358,14 +358,14 @@ void Driver::processContent(Telegram *t)
             fi_total_backwards && this->hasNumericValue(fi_total_backwards);
 
         if (!has_total || !has_total_backwards) {
-        // We can access the raw decoded telegram bytes via t->frame.
-        // Layout of `frame` depends on link-layer, but dvparser already logged
-        // the relevant trimmed DIF/VIF entries; those DIF/VIF bytes appear
-        // in order in `frame` as well.
-        //
-        // NOTE: This fallback is intentionally conservative: it only tries
-        // to decode the exact value byte-lengths for known DIF formats.
-        const std::vector<uchar> &frame = t->frame;
+            // We can access the raw decoded telegram bytes via t->frame.
+            // Layout of `frame` depends on link-layer, but dvparser already logged
+            // the relevant trimmed DIF/VIF entries; those DIF/VIF bytes appear
+            // in order in `frame` as well.
+            //
+            // NOTE: This fallback is intentionally conservative: it only tries
+            // to decode the exact value byte-lengths for known DIF formats.
+            const std::vector<uchar> &frame = t->frame;
 
         auto parse_u32_le_at = [&](size_t pos, bool *ok) -> double {
             if (pos + 4 > frame.size()) {
