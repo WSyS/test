@@ -346,7 +346,18 @@ void Driver::processContent(Telegram *t)
     //     BackwardFlow combinable (combinable VIF raw 0x3C in our traces)
     //
     // We only set fields if they are missing already.
-    if ((!has_total || !has_total_backwards) && t && t->dv_entries.size() == 0) {
+    if (t->dv_entries.size() == 0) {
+
+        // Field presence checks (must be inside this scope).
+        FieldInfo *fi_total = this->findFieldInfo("total", Quantity::Volume);
+        FieldInfo *fi_total_backwards =
+            this->findFieldInfo("total_backwards", Quantity::Volume);
+
+        bool has_total = fi_total && this->hasNumericValue(fi_total);
+        bool has_total_backwards =
+            fi_total_backwards && this->hasNumericValue(fi_total_backwards);
+
+        if (!has_total || !has_total_backwards) {
         // We can access the raw decoded telegram bytes via t->frame.
         // Layout of `frame` depends on link-layer, but dvparser already logged
         // the relevant trimmed DIF/VIF entries; those DIF/VIF bytes appear
