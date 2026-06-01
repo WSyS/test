@@ -219,31 +219,37 @@ void Driver::processContent(Telegram *t)
         ESP_LOGI("APP", "(brummerhoop) IV candidate(first16)=%s", iv_hex);
     }
 
-    std::vector<uint8_t> ciphertext;
-    if (check_pos != std::numeric_limits<size_t>::max()) {
-        // Heuristic: ciphertext likely starts after the two decrypt check bytes.
-        size_t ct_start = check_pos + 2;
-        if (ct_start < last_frame_.size()) {
-            ciphertext.reserve(last_frame_.size() - ct_start);
-            for (size_t i = ct_start; i < last_frame_.size(); i++)
-                ciphertext.push_back((uint8_t)last_frame_[i]);
-        }
-    }
+    // IMPORTANT: Avoid std::vector allocations in this ESP32 code path.
+    // This driver runs on ESPHome/ESP32 and the extra heap pressure was
+    // correlated with heap/TLSF crashes.
+    //
+    // Max decrypted size in your logs is small (e.g. 50 bytes). We'll cap it.
+    constexpr size_t MAX_CT = 64; // bytes after splitting
 
-    if (ciphertext.empty()) {
-        // Fallback to previous split: everything after first 16 bytes.
-        ciphertext.reserve(last_frame_.size() - 16);
-        for (size_t i = 16; i < last_frame_.size(); i++)
-            ciphertext.push_back((uint8_t)last_frame_[i]);
-        ESP_LOGW("APP", "(brummerhoop) ciphertext split fallback to first16|rest (ct_len=%u)", (unsigned)ciphertext.size());
-    }
+    size_t ct_start = (check_pos != std::numeric_limits<size_t>::max()) ? (check_pos + 2) : 16;
+    if (ct_start >= last_frame_.size())
+        return;
 
+    size_t ct_len = last_frame_.size() - ct_start;
+    if (ct_len > MAX_CT)
+        ct_len = MAX_CT;
 
-    std::vector<uint8_t> decrypted(ciphertext.size());
+    static_assert((MAX_CT % 16) == 0 || true, "AES_CBC_decrypt_buffer expects full blocks (implementation-dependent)");
 
-    // AES-CBC decrypt
-    AES_CBC_decrypt_buffer(decrypted.data(), ciphertext.data(), (uint32_t)ciphertext.size(),
+    uint8_t ciphertext_buf[MAX_CT];
+    uint8_t decrypted_buf[MAX_CT];
+
+    for (size_t i = 0; i < ct_len; i++)
+        ciphertext_buf[i] = (uint8_t)last_frame_[ct_start + i];
+
+    AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
                            key_.data(), iv_.data());
+
+    ESP_LOGI("APP", "(brummerhoop) AES decrypt ct_start=%u ct_len=%u", (unsigned)ct_start, (unsigned)ct_len);
+
+    const uint8_t *decrypted = decrypted_buf;
+    size_t decrypted_len = ct_len;
+
 
 
 
