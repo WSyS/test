@@ -206,7 +206,22 @@ void Driver::processContent(Telegram *t)
 
     ESP_LOGI("APP", "(brummerhoop) decrypted payload len=%u", (unsigned)decrypted.size());
 
+    // Debug: print first bytes of decrypted payload (avoid huge logs)
+    {
+        size_t dump_len = decrypted.size() < 32 ? decrypted.size() : 32;
+        char buf[3 * 32 + 1];
+        size_t p = 0;
+        for (size_t di = 0; di < dump_len; di++) {
+            int n = snprintf(&buf[p], sizeof(buf) - p, "%02X", (unsigned)decrypted[di]);
+            if (n <= 0) break;
+            p += (size_t)n;
+        }
+        buf[sizeof(buf) - 1] = '\0';
+        ESP_LOGI("APP", "(brummerhoop) decrypted first %u bytes=%s", (unsigned)dump_len, buf);
+    }
+
     // Search decrypted payload for known patterns:
+
     // total_m3:  DIF=0x04, VIF=0x13, followed by 4 data bytes (little endian),
     //            where raw is in liters and scale is /1000 => m3.
     // total_backwards: DIF=0x44, VIF=0x93, followed by 2 data bytes (little endian)
