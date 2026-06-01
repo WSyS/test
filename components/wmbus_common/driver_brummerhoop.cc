@@ -117,7 +117,7 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
     // If the core decided to call processContent for us, it will already be done.
     // Otherwise, invoke it here for consistent field extraction/logging.
  //   if (out_analyzed != NULL && !out_analyzed->discard)
- //       processContent(out_analyzed);
+        processContent(out_analyzed);
 
 
 
