@@ -155,7 +155,7 @@ void Driver::processContent(Telegram *t)
     // address expressions id. In this driver we assume addressExpressions()[0]
     // contains the full 16-byte AES key as 32 hex chars.
     std::vector<AddressExpression> aexps = this->addressExpressions();
-    std::string key_hex = (aexps.size() > 0) ? aexps[0].id : "";
+    std::string key_hex = (aexps.size() > 0) ? aexps[0].key : "";
 
     ESP_LOGI("APP", "(brummerhoop) aes key_hex candidate='%s' (len=%u)",
              key_hex.c_str(), (unsigned)key_hex.size());
