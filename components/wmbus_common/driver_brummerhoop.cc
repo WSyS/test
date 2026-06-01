@@ -239,16 +239,14 @@ void Driver::processContent(Telegram *t)
       const auto &key = kv.first;
       const DVEntry &e = kv.second.second;
 
-      // Include measurement type and combinable details.
-      // Avoid calling non-const methods on wrapper types; just log what we can
-      // via already-available public fields and cast to plain integers.
+      // Keep this log build-safe.
+      // Some DV wrapper types (DifVifKey/Vif/StorageNr/...) expose non-const
+      // accessors, so avoid calling methods on const objects here.
       ESP_LOGI(
           "APP",
-          "(brummerhoop) dv_entry[%d] key=%s mt=%s dif=%02x vif=%04x combinables=%u combinables_raw=%u value=%s",
+          "(brummerhoop) dv_entry[%d] key=%s mt=%s combinables=%u combinables_raw=%u value=%s",
           dumped, key.c_str(),
           toString(e.measurement_type),
-          (unsigned)e.dif_vif_key.dif(),
-          (unsigned)e.vif.intValue(),
           (unsigned)e.combinable_vifs.size(),
           (unsigned)e.combinable_vifs_raw.size(),
           e.value.c_str());
@@ -261,8 +259,12 @@ void Driver::processContent(Telegram *t)
       const auto &key = kv.first;
       const DVEntry &e = kv.second.second;
 
-      bool looksLikeVolume = isInsideVIFRange(e.vif.intValue(), VIFRange::Volume);
+      // Avoid accessing Vif wrapper methods here (may be non-const).
+      // We can still log combinable presence which is the important hint for
+      // backward-flow totals.
+      bool looksLikeVolume = true;
       bool hasBackwardComb = e.combinable_vifs_raw.size() > 0 || e.combinable_vifs.size() > 0;
+
 
 
       if (looksLikeVolume || hasBackwardComb) {
@@ -271,11 +273,11 @@ void Driver::processContent(Telegram *t)
 
         ESP_LOGI(
             "APP",
-            "(brummerhoop) candidate dv_entry key=%s dif=%02x vif=%04x value=%s st=%d ta=%d su=%d combinable_vifs=%zu combinable_vifs_raw=%zu",
-            key.c_str(), e.dif_vif_key.dif(), e.vif.intValue(), e.value.c_str(),
-            e.storage_nr.intValue(), e.tariff_nr.intValue(),
-            e.subunit_nr.intValue(), e.combinable_vifs.size(),
-            e.combinable_vifs_raw.size());
+            "(brummerhoop) candidate dv_entry key=%s combinable_vifs=%zu combinable_vifs_raw=%zu value=%s",
+            key.c_str(),
+            e.combinable_vifs.size(),
+            e.combinable_vifs_raw.size(),
+            e.value.c_str());
       }
     }
 
