@@ -367,19 +367,18 @@ void Driver::processContent(Telegram *t)
             // to decode the exact value byte-lengths for known DIF formats.
             const std::vector<uchar> &frame = t->frame;
 
-            auto parse_u32_le_at = [&](size_t pos, bool *ok) -> double {
 
-            if (pos + 4 > frame.size()) {
-                *ok = false;
-                return 0.0;
-            }
-            uint32_t raw = (uint32_t(frame[pos + 0])) |
-                           (uint32_t(frame[pos + 1]) << 8) |
-                           (uint32_t(frame[pos + 2]) << 16) |
-                           (uint32_t(frame[pos + 3]) << 24);
-            *ok = true;
-            return raw;
-        };
+                if (pos + 4 > frame.size()) {
+                    *ok = false;
+                    return 0.0;
+                }
+                uint32_t raw = (uint32_t(frame[pos + 0])) |
+                               (uint32_t(frame[pos + 1]) << 8) |
+                               (uint32_t(frame[pos + 2]) << 16) |
+                               (uint32_t(frame[pos + 3]) << 24);
+                *ok = true;
+                return raw;
+            };
         auto parse_u16_le_at = [&](size_t pos, bool *ok) -> double {
             if (pos + 2 > frame.size()) {
                 *ok = false;
