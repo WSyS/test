@@ -448,8 +448,8 @@ void Driver::processContent(Telegram *t)
             if (!found)
                 ESP_LOGW("APP", "(brummerhoop) fallback total_backwards not found in frame");
         }
+        }
     }
-
     (void)t;
 
 }
