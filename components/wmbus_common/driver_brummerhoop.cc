@@ -374,11 +374,11 @@ void Driver::processContent(Telegram *t)
             // extracts DIF/VIF entries after trimming CRCs.
             const std::vector<uchar> &frame = last_frame_;
 
-            
+
             std::string s;
             for (auto b : frame) {
                 char buf[4];
-                sprintf(buf, "%02X ", b);
+                sprintf(buf, "%02X", b);
                 s += buf;
             }
 
