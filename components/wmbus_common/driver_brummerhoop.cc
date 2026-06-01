@@ -378,6 +378,22 @@ void Driver::processContent(Telegram *t)
                      "(brummerhoop) fallback scan frame_size=%u",
                      (unsigned)frame.size());
 
+            char line[500];
+
+            for (size_t i = 0; i < frame.size(); i += 16) {
+                int pos = snprintf(line, sizeof(line), "%04u: ", (unsigned)i);
+
+                for (size_t j = i; j < i + 16 && j < frame.size(); ++j) {
+                    pos += snprintf(line + pos,
+                                    sizeof(line) - pos,
+                                    "%02X ",
+                                    frame[j]);
+                }
+
+                ESP_LOGI("APP", "Telegram: %s", line);
+            }
+
+
 
             auto parse_u32_le_at = [&](size_t pos, bool *ok) -> double {
                 if (pos + 4 > frame.size()) {
