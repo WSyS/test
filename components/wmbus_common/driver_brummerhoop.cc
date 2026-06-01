@@ -17,7 +17,6 @@ private:
     std::vector<uchar> last_frame_;
 };
 
-
 static bool ok = registerDriver([](DriverInfo &di)
 {
     di.setName("brummerhoop");
@@ -25,121 +24,63 @@ static bool ok = registerDriver([](DriverInfo &di)
     di.setMeterType(MeterType::WaterMeter);
     di.setDefaultFields("name,id,total,total_backwards_at_set_date_m3,status,timestamp");
 
-
     di.addLinkMode(LinkMode::T1);
     di.addLinkMode(LinkMode::C1);
 
-
-    // Brummerhoop payload parsing can require custom processing.
-    // However, for this implementation we rely on the generic parsing
-    // pipeline to populate dv_entries (needed for extraction).
-    // We still keep conservative safety checks inside processContent.
     di.usesProcessContent();
-
-
-
-    // Adjust manufacturer if needed
-    // For brummerhoop telegrams the "version" field is not constant, so keep
-    // it wildcarded (-1) but still bind to the correct manufacturer
 
     di.addDetection(MANUFACTURER_EFE, 0x07, -1);
 
-    // Best-effort matching for common Brummerhoop/Waterstarm variants.
-    // If these don't match your specific meter, they won't harm selection.
     di.addDetection(MANUFACTURER_DWZ, 0x07, 0x00); // warm water
     di.addDetection(MANUFACTURER_DWZ, 0x07, 0x02); // alternative
 
     di.setConstructor([](MeterInfo &mi, DriverInfo &di)
-
     {
         return std::shared_ptr<Meter>(new Driver(mi, di));
     });
 });
 
+static bool hexToBytesFixed16(const std::string &hex,
+                               std::array<uint8_t, 16> &out)
+{
+    // Expect 32 hex chars => 16 bytes AES key
+    if (hex.size() != 32)
+        return false;
+
+    for (size_t i = 0; i < 16; i++)
+    {
+        out[i] = (uint8_t)strtoul(hex.substr(i * 2, 2).c_str(), nullptr, 16);
+    }
+    return true;
+}
+
 bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame,
                            bool simulated, std::vector<Address> *addresses,
                            bool *id_match, Telegram *out_analyzed)
-
 {
     last_frame_ = input_frame;
 
     ESP_LOGI("APP", "(brummerhoop) handleTelegram entered simulated=%d frame_size=%d id_match_ptr=%p addresses_ptr=%p",
              (int)simulated, (int)input_frame.size(), (void *)id_match, (void *)addresses);
 
-    // Cache frame in a minimal way and let the processContent pipeline do the work
-    // if it ever gets called.
-    // Note: Since this driver should be matched by dispatcher, this should run.
-
-    bool parent_ok = 0;
-
-    // Call parent to ensure Telegram is analyzed.
-    parent_ok = MeterCommonImplementation::handleTelegram(about, input_frame,
+    bool parent_ok = MeterCommonImplementation::handleTelegram(about, input_frame,
                                                                  simulated, addresses,
                                                                  id_match, out_analyzed);
 
-    
-
-    ESP_LOGI("APP", "(brummerhoop) handleTelegram parent_ok=%d out_analyzed=%p discard=%d",
-             (int)parent_ok, (void *)out_analyzed,
-             out_analyzed ? (int)out_analyzed->discard : -1);
-
-
-
-
-    // Log the configured meter_id (from YAML: wmbus_meter.meter_id) if available.
-    // The meter_id configured in YAML is fed into MeterInfo::parse(..., aes="id + "," ...)
-    // and ends up embedded in the configured address expression id.
-    std::vector<AddressExpression> aexps = this->addressExpressions();
-    std::string yaml_meter_id = aexps.size() > 0 ? aexps[0].id : "0";
-    yaml_meter_id = std::to_string(std::stoul(yaml_meter_id, nullptr, 16));
-    ESP_LOGI("APP", "(brummerhoop) configured meter_id(yaml)=%s", yaml_meter_id.c_str());
-
-
-    std::string packet_meter_id;
-
-    const std::vector<uchar> &frame = input_frame;
-    if (frame.size() > 10)
-    {
-      // Bytes frame[4..7] correspond to meter id bytes (endianness adjusted for addressExpressions matching).
-      uchar id0 = frame[4], id1 = frame[5], id2 = frame[6], id3 = frame[7];
-      packet_meter_id = tostrprintf("%02X%02X%02X%02X", id3, id2, id1, id0);
-    }
-
-
-    ESP_LOGI("APP", "(brummerhoop) extracted meter_id(packet)=%s", packet_meter_id.c_str());
-
-
-    if (packet_meter_id == yaml_meter_id)
-    {
-        ESP_LOGI("APP", "(brummerhoop) IDs are the same");
-        if (id_match) {
-            *id_match = true;
-        }
-    }
-
-
-    // If the core decided to call processContent for us, it will already be done.
-    // Otherwise, invoke it here for consistent field extraction/logging.
-    if (out_analyzed != NULL && !out_analyzed->discard) {
+    if (out_analyzed != NULL && !out_analyzed->discard)
         processContent(out_analyzed);
-    }
 
-
-
-    return true;
-
+    return parent_ok;
 }
 
 Driver::Driver(MeterInfo &mi, DriverInfo &di)
     : MeterCommonImplementation(mi, di)
 {
-
     addStringFieldWithExtractorAndLookup(
         "status",
         "Status and error flags.",
         DEFAULT_PRINT_PROPERTIES | PrintProperty::INCLUDE_TPL_STATUS | PrintProperty::STATUS,
-        FieldMatcher::build()
-            .set(VIFRange::ErrorFlags),
+        FieldMatcher::build().set(VIFRange::ErrorFlags),
         {
             {
                 {
@@ -189,481 +130,138 @@ Driver::Driver(MeterInfo &mi, DriverInfo &di)
 
 void Driver::processContent(Telegram *t)
 {
-    // Keep this function intentionally minimal: field extraction is handled
-    // by MeterCommonImplementation::processFieldExtractors based on dv_entries.
-    // If the generic parser cannot populate dv_entries, there is nothing safe
-    // to do here without custom DIF/VIF parsing.
-    ESP_LOGW("APP", "(brummerhoop) processContent ENTER");
-
-
-
-    // Brummerhoop frames contain many VIFs and (for some payload variants)
-
-    // the generic extractor path may recurse deeply and overflow the ESP32
-    // stack. Keep decoding here conservative and bail out on suspicious
-    // frames.
-
-    ESP_LOGI("APP", "(brummerhoop) processContent enter t=%p dv=%d header=%d suffix=%d parsed=%d",
-             (void *)t,
-             t ? (int)t->dv_entries.size() : -1,
-             t ? t->header_size : -1,
-             t ? t->suffix_size : -1,
-             t ? (int)t->parsed.size() : -1);
-
-
     if (t == NULL)
         return;
 
-    // Heuristic: the problematic telegrams always contain a DIF/VIF pattern
-    // around entries we saw in the logs (e.g. DIF 0x046D + several 0x0413).
-    // If the payload ends up with an unexpectedly high amount of dv_entries
-    // and/or contains known bad VIFs, discard to prevent stack overflow.
-    if (t->dv_entries.size() > 40) {
-        ESP_LOGW("APP", "(brummerhoop) discarding: too many dv_entries=%d",
-                 (int)t->dv_entries.size());
-        t->discard = true;
+    // If the generic parser extracted dv_entries successfully, use the normal
+    // pipeline.
+    if (!t->dv_entries.empty())
+    {
+        this->processFieldExtractors(t);
         return;
     }
 
+    // Fallback: brute-force AES-CBC decode of the encrypted user data.
+    // Only activate when dv_entries are empty (as requested).
+    ESP_LOGW("APP", "(brummerhoop) fallback activated: dv_entries empty");
 
+    if (last_frame_.size() < 32)
+        return;
 
-    // Additional conservative rule: if the decoded format is clearly not a
-    // compact profile for this meter, discard.
-    // (We rely on dv_entries extraction already happened; we only avoid
-    // further heavy processing.)
+    // Key derivation:
+    // MeterInfo::parse(..., aes="id + "," key) feeds the AES key into the
+    // address expressions id. In this driver we assume addressExpressions()[0]
+    // contains the full 16-byte AES key as 32 hex chars.
+    std::vector<AddressExpression> aexps = this->addressExpressions();
+    std::string key_hex = (aexps.size() > 0) ? aexps[0].id : "";
 
-    ESP_LOGW("APP", "(brummerhoop) dv_entries size=%d", (int)t->dv_entries.size());
+    ESP_LOGI("APP", "(brummerhoop) aes key_hex candidate='%s' (len=%u)",
+             key_hex.c_str(), (unsigned)key_hex.size());
 
-    // Dump dv_entries so we can determine which keys correspond to
-    // total_m3 and total_backwards_m3.
-    int dumped = 0;
-    for (auto &kv : t->dv_entries) {
-      if (dumped++ >= 120)
-        break;
-
-      const auto &key = kv.first;
-      const DVEntry &e = kv.second.second;
-
-      // Keep this log build-safe.
-      // Some DV wrapper types (DifVifKey/Vif/StorageNr/...) expose non-const
-      // accessors, so avoid calling methods on const objects here.
-      ESP_LOGI(
-          "APP",
-          "(brummerhoop) dv_entry[%d] key=%s mt=%s combinables=%u combinables_raw=%u value=%s",
-          dumped, key.c_str(),
-          toString(e.measurement_type),
-          (unsigned)e.combinable_vifs.size(),
-          (unsigned)e.combinable_vifs_raw.size(),
-          e.value.c_str());
-    }
-
-    // Targeted scan: log any entry that looks like it could be backward flow
-    // (combinable) and any entry with a volume VIF (0x13 typically).
-    dumped = 0;
-    for (auto &kv : t->dv_entries) {
-      const auto &key = kv.first;
-      const DVEntry &e = kv.second.second;
-
-      // Avoid accessing Vif wrapper methods here (may be non-const).
-      // We can still log combinable presence which is the important hint for
-      // backward-flow totals.
-      bool looksLikeVolume = true;
-      bool hasBackwardComb = e.combinable_vifs_raw.size() > 0 || e.combinable_vifs.size() > 0;
-
-
-
-      if (looksLikeVolume || hasBackwardComb) {
-        if (dumped++ >= 60)
-          break;
-
-        ESP_LOGI(
-            "APP",
-            "(brummerhoop) candidate dv_entry key=%s combinable_vifs=%zu combinable_vifs_raw=%zu value=%s",
-            key.c_str(),
-            e.combinable_vifs.size(),
-            e.combinable_vifs_raw.size(),
-            e.value.c_str());
-      }
-    }
-
-
-    // Ensure we extracted field values before reading them.
-    // (Needed so total/status fields are available from dv_entries.)
-    this->processFieldExtractors(t);
-
-    // Log decoded values when available.
-
-    // Note: We currently log "status" as the decoded string.
-    // Raw status bits are not exposed as a separate raw numeric/string
-    // value by this driver abstraction, so we log them as <n/a>.
+    std::array<uint8_t, 16> key_{};
+    if (!hexToBytesFixed16(key_hex, key_))
     {
-
-        // Field names are declared in the driver constructor with the
-        // quantities:
-        // - total: Quantity::Volume
-        // - total_backwards: Quantity::Volume
-        // - status: Quantity::Text
-        //
-        // Note: We intentionally use get*Value() for the same unit that the
-        // fields are declared with.
-        FieldInfo *fi_total = this->findFieldInfo("total", Quantity::Volume);
-        FieldInfo *fi_total_backwards =
-            this->findFieldInfo("total_backwards", Quantity::Volume);
-        FieldInfo *fi_status = this->findFieldInfo("status", Quantity::Text);
-
-
-        bool has_total = fi_total && this->hasNumericValue(fi_total);
-        bool has_total_backwards =
-            fi_total_backwards && this->hasNumericValue(fi_total_backwards);
-        bool has_status = fi_status && this->hasStringValue(fi_status);
-
-        double total_m3 = -999.9;
-        double total_backwards_m3 = -999.9;
-        std::string status_decoded;
-
-        if (has_total)
-            total_m3 = this->getNumericValue(fi_total, Unit::M3);
-        if (has_total_backwards)
-            total_backwards_m3 =
-                this->getNumericValue(fi_total_backwards, Unit::M3);
-        if (has_status)
-            status_decoded = this->getStringValue(fi_status);
-
-        std::string status_raw_bits = "<n/a>";
-
-        ESP_LOGI(
-            "APP",
-            "(brummerhoop) has_total=%d has_total_backwards=%d has_status=%d total_m3=%f total_backwards_m3=%f status_raw_bits=%s status_decoded=%s",
-            (int)has_total, (int)has_total_backwards, (int)has_status,
-            total_m3, total_backwards_m3, status_raw_bits.c_str(),
-            status_decoded.c_str());
-    }
-
-
-    // Fallback: some Brummerhoop telegrams do not get dv_entries populated
-    // correctly, so the generic field extractor cannot find `total`.
-    //
-    // In that case we best-effort search for the known DIF/VIF patterns
-    // we observed in real telegrams:
-    //   - total_m3: DIF=0x04 (32-bit int/binary) + VIF=0x13 (Volume l)
-    //   - total_backwards_at_set_date_m3: DIF=0x44 (16-bit) + VIF=0x93 with
-    //     BackwardFlow combinable (combinable VIF raw 0x3C in our traces)
-    //
-    // We only set fields if they are missing already.
-    if (t->dv_entries.size() == 0) {
-
-        // Field presence checks (must be inside this scope).
-        FieldInfo *fi_total = this->findFieldInfo("total", Quantity::Volume);
-        FieldInfo *fi_total_backwards =
-            this->findFieldInfo("total_backwards", Quantity::Volume);
-
-        bool has_total = fi_total && this->hasNumericValue(fi_total);
-        bool has_total_backwards =
-            fi_total_backwards && this->hasNumericValue(fi_total_backwards);
-
-        if (!has_total || !has_total_backwards) {
-            // We can access the raw decoded telegram bytes via t->frame.
-            // Layout of `frame` depends on link-layer, but dvparser already logged
-            // the relevant trimmed DIF/VIF entries; those DIF/VIF bytes appear
-            // in order in `frame` as well.
-            //
-            // NOTE: This fallback is intentionally conservative: it only tries
-            // to decode the exact value byte-lengths for known DIF formats.
-            // Use the telegram payload (content area) rather than the full
-            // telegram frame. This is more consistent with how dvparser
-            // extracts DIF/VIF entries after trimming CRCs.
-            const std::vector<uchar> &frame = last_frame_;
-
-
-            std::string s;
-            for (auto b : frame) {
-                char buf[4];
-                sprintf(buf, "%02X", b);
-                s += buf;
-            }
-
-            ESP_LOGI("APP", "(brummerhoop) fallback scan frame_size=%u data=%s",
-                    (unsigned)frame.size(),
-                    s.c_str());
-
-
-            auto parse_u32_le_at = [&](size_t pos, bool *ok) -> double {
-                if (pos + 4 > frame.size()) {
-                    *ok = false;
-                    return 0.0;
-                }
-                uint32_t raw = (uint32_t(frame[pos + 0])) |
-                               (uint32_t(frame[pos + 1]) << 8) |
-                               (uint32_t(frame[pos + 2]) << 16) |
-                               (uint32_t(frame[pos + 3]) << 24);
-                *ok = true;
-                return raw;
-            };
-
-            auto parse_u16_le_at = [&](size_t pos, bool *ok) -> double {
-                if (pos + 2 > frame.size()) {
-                    *ok = false;
-                    return 0.0;
-                }
-                uint16_t raw = uint16_t(frame[pos + 0]) |
-                                (uint16_t(frame[pos + 1]) << 8);
-                *ok = true;
-                return raw;
-            };
-
-
-        // total: search for DIF 0x04 followed by VIF 0x13.
-        // We expect 4 data
-#include "meters_common_implementation.h"
-#include "manufacturer_specificities.h"
-
-namespace
-{
-
-static bool hexToBytes16(const std::string &hex, std::array<uint8_t, 16> &out)
-{
-    if (hex.size() != 32)
-        return false;
-
-    for (size_t i = 0; i < 16; i++)
-    {
-        out[i] = (uint8_t)strtoul(hex.substr(i * 2, 2).c_str(), nullptr, 16);
-    }
-
-    return true;
-}
-
-struct Driver : public virtual MeterCommonImplementation
-{
-    Driver(MeterInfo &mi, DriverInfo &di);
-
-    bool handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame,
-                         bool simulated, std::vector<Address> *addresses,
-                         bool *id_match, Telegram *out_analyzed = NULL) override;
-
-    void processContent(Telegram *t) override;
-
-private:
-    std::vector<uchar> last_frame_;
-};
-
-static bool ok = registerDriver([](DriverInfo &di)
-{
-    di.setName("brummerhoop");
-    di.setMeterType(MeterType::WaterMeter);
-    di.setDefaultFields("name,id,total,total_backwards_at_set_date_m3,status,timestamp");
-
-    di.addLinkMode(LinkMode::T1);
-    di.addLinkMode(LinkMode::C1);
-
-    di.usesProcessContent();
-
-    di.addDetection(MANUFACTURER_EFE, 0x07, -1);
-    di.addDetection(MANUFACTURER_DWZ, 0x07, 0x00);
-    di.addDetection(MANUFACTURER_DWZ, 0x07, 0x02);
-
-    di.setConstructor([](MeterInfo &mi, DriverInfo &di)
-    {
-        return std::shared_ptr<Meter>(new Driver(mi, di));
-    });
-});
-
-bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame,
-                           bool simulated, std::vector<Address> *addresses,
-                           bool *id_match, Telegram *out_analyzed)
-{
-    last_frame_ = input_frame;
-
-    bool parent_ok = MeterCommonImplementation::handleTelegram(
-        about, input_frame, simulated, addresses, id_match, out_analyzed);
-
-    if (out_analyzed && !out_analyzed->discard)
-        processContent(out_analyzed);
-
-    return parent_ok;
-}
-
-Driver::Driver(MeterInfo &mi, DriverInfo &di)
-    : MeterCommonImplementation(mi, di)
-{
-    addStringFieldWithExtractorAndLookup(
-        "status",
-        "Status and error flags.",
-        DEFAULT_PRINT_PROPERTIES | PrintProperty::STATUS,
-        FieldMatcher::build().set(VIFRange::ErrorFlags),
-        {{
-            {"ERROR_FLAGS", Translate::MapType::BitToString,
-             AlwaysTrigger, MaskBits(0xffff),
-             "OK",
-             {
-                 {0x01, "SW_ERROR"},
-                 {0x02, "CRC_ERROR"},
-                 {0x04, "SENSOR_ERROR"},
-                 {0x08, "MEASUREMENT_ERROR"},
-                 {0x10, "BATTERY_ERROR"},
-                 {0x20, "MANIPULATION"},
-                 {0x40, "LEAKAGE"},
-                 {0x80, "REVERSE_FLOW"},
-             }}
-        }});
-
-    addNumericFieldWithExtractor(
-        "total",
-        "Total water consumption",
-        DEFAULT_PRINT_PROPERTIES,
-        Quantity::Volume,
-        VifScaling::Auto,
-        DifSignedness::Signed,
-        FieldMatcher::build()
-            .set(MeasurementType::Instantaneous)
-            .set(VIFRange::Volume));
-
-    addNumericFieldWithExtractor(
-        "total_backwards",
-        "Backward flow",
-        DEFAULT_PRINT_PROPERTIES,
-        Quantity::Volume,
-        VifScaling::Auto,
-        DifSignedness::Signed,
-        FieldMatcher::build()
-            .set(VIFRange::AnyVolumeVIF)
-            .add(VIFCombinable::BackwardFlow));
-}
-
-void Driver::processContent(Telegram *t)
-{
-    if (!t) return;
-
-    ESP_LOGW("APP", "(brummerhoop) processContent ENTER");
-
-    if (t->dv_entries.empty())
-    {
-        ESP_LOGW("APP", "(brummerhoop) AES fallback activated");
-
-        const std::vector<uchar> &frame = last_frame_;
-
-        if (frame.size() < 32)
-            return;
-
-        std::vector<AddressExpression> aexps = this->addressExpressions();
-        std::string key_hex = (aexps.size() > 0) ? aexps[0].id : "";
-
-        std::array<uint8_t, 16> key{};
-        if (!hexToBytes16(key_hex, key))
-        {
-            ESP_LOGE("APP", "(brummerhoop) invalid AES key");
-            return;
-        }
-
-        std::array<uint8_t, 16> iv{};
-        memcpy(iv.data(), frame.data(), 16);
-
-        std::vector<uint8_t> ciphertext(frame.begin() + 16, frame.end());
-        std::vector<uint8_t> decrypted(ciphertext.size());
-
-        if (!aes_cbc_decrypt(ciphertext, key, iv, decrypted))
-        {
-            ESP_LOGE("APP", "(brummerhoop) AES decrypt failed");
-            return;
-        }
-
-        for (size_t i = 0; i + 6 < decrypted.size(); i++)
-        {
-            if (decrypted[i] == 0x04 && decrypted[i + 1] == 0x13)
-            {
-                uint32_t raw =
-                    decrypted[i + 2] |
-                    (decrypted[i + 3] << 8) |
-                    (decrypted[i + 4] << 16) |
-                    (decrypted[i + 5] << 24);
-
-                setNumericValue("total", Unit::M3, raw / 1000.0);
-            }
-
-            if (decrypted[i] == 0x44 && decrypted[i + 1] == 0x93)
-            {
-                uint16_t raw =
-                    decrypted[i + 2] |
-                    (decrypted[i + 3] << 8);
-
-                setNumericValue("total_backwards", Unit::M3, raw / 1000.0);
-            }
-        }
-
+        ESP_LOGE("APP", "(brummerhoop) AES key hex must be 32 chars for AES-128");
         return;
     }
 
-    this->processFieldExtractors(t);
+    // For Waterstarm/EN13757-3 AES-CBC: the IV is carried in the telegram payload
+    // (tpl-cfg shows AES_CBC_IV). In practice, for our received trimmed frame
+    // we use the first 16 bytes of last_frame_ as IV.
+    // Ciphertext: everything after the first 16 bytes.
+    if (last_frame_.size() <= 16)
+        return;
+
+    std::array<uint8_t, 16> iv_{};
+    memcpy(iv_.data(), last_frame_.data(), 16);
+
+    std::vector<uint8_t> ciphertext;
+    ciphertext.reserve(last_frame_.size() - 16);
+    for (size_t i = 16; i < last_frame_.size(); i++)
+        ciphertext.push_back((uint8_t)last_frame_[i]);
+
+    std::vector<uint8_t> decrypted(ciphertext.size());
+
+    // AES-CBC decrypt
+    AES_CBC_decrypt_buffer(decrypted.data(), ciphertext.data(), (uint32_t)ciphertext.size(),
+                           key_.data(), iv_.data());
+
+    ESP_LOGI("APP", "(brummerhoop) decrypted payload len=%u", (unsigned)decrypted.size());
+
+    // Search decrypted payload for known patterns:
+    // total_m3:  DIF=0x04, VIF=0x13, followed by 4 data bytes (little endian),
+    //            where raw is in liters and scale is /1000 => m3.
+    // total_backwards: DIF=0x44, VIF=0x93, followed by 2 data bytes (little endian)
+    //                   scale /1000.
+    auto parse_u32_le_at = [&](size_t pos, bool *ok) -> uint32_t {
+        if (pos + 4 > decrypted.size()) {
+            *ok = false;
+            return 0;
+        }
+        uint32_t raw = (uint32_t(decrypted[pos + 0])) |
+                       (uint32_t(decrypted[pos + 1]) << 8) |
+                       (uint32_t(decrypted[pos + 2]) << 16) |
+                       (uint32_t(decrypted[pos + 3]) << 24);
+        *ok = true;
+        return raw;
+    };
+
+    auto parse_u16_le_at = [&](size_t pos, bool *ok) -> uint16_t {
+        if (pos + 2 > decrypted.size()) {
+            *ok = false;
+            return 0;
+        }
+        uint16_t raw = uint16_t(decrypted[pos + 0]) |
+                       (uint16_t(decrypted[pos + 1]) << 8);
+        *ok = true;
+        return raw;
+    };
+
+    bool have_total = false;
+    bool have_total_backwards = false;
+
+    for (size_t i = 0; i + 6 < decrypted.size(); i++)
+    {
+        if (!have_total && decrypted[i] == 0x04 && decrypted[i + 1] == 0x13)
+        {
+            bool okv = false;
+            uint32_t raw = parse_u32_le_at(i + 2, &okv);
+            if (okv)
+            {
+                double total_m3 = raw / 1000.0;
+                setNumericValue("total", Unit::M3, total_m3);
+                ESP_LOGI("APP", "(brummerhoop) fallback total: raw=%u => %.6fm3 at pos=%u",
+                         (unsigned)raw, total_m3, (unsigned)i);
+                have_total = true;
+            }
+        }
+
+        if (!have_total_backwards && decrypted[i] == 0x44 && decrypted[i + 1] == 0x93)
+        {
+            bool okv = false;
+            uint16_t raw = parse_u16_le_at(i + 2, &okv);
+            if (okv)
+            {
+                double total_back_m3 = raw / 1000.0;
+                setNumericValue("total_backwards", Unit::M3, total_back_m3);
+                ESP_LOGI("APP", "(brummerhoop) fallback total_backwards: raw=%u => %.6fm3 at pos=%u",
+                         (unsigned)raw, total_back_m3, (unsigned)i);
+                have_total_backwards = true;
+            }
+        }
+
+        if (have_total && have_total_backwards)
+            break;
+    }
+
+    if (!have_total)
+        ESP_LOGW("APP", "(brummerhoop) fallback: total not found in decrypted payload");
+
+    if (!have_total_backwards)
+        ESP_LOGW("APP", "(brummerhoop) fallback: total_backwards not found in decrypted payload");
+
+    // Nothing else to do in fallback mode.
 }
 
 } // namespace
- bytes after DIF/VIF.
-        if (!has_total) {
-            bool found = false;
-            for (size_t i = 0; i + 1 + 4 < frame.size(); i++) {
-                if (frame[i] == 0x04 && frame[i + 1] == 0x13) {
-                    bool okv = false;
-                    double raw = parse_u32_le_at(i + 2, &okv);
-                    if (okv) {
-                        // For VIF 0x13 (Volume l) scale in our traces => /1000 => m³.
-                        double total_m3 = raw / 1000.0;
-                        setNumericValue("total", Unit::M3, total_m3);
-                        ESP_LOGI("APP", "(brummerhoop) fallback total_m3=%.6f at pos=%u raw=%.0f",
-                                 total_m3, (unsigned)i, raw);
-                        found = true;
-                        break;
-                    }
-                }
-            }
-            if (!found)
-                ESP_LOGW("APP", "(brummerhoop) fallback total not found in frame");
-        }
-
-        // total_backwards_at_set_date_m3: search DIF 0x44 and VIF 0x93.
-        // Expect 2 data bytes after DIF/VIF.
-        if (!has_total_backwards) {
-            bool found = false;
-            for (size_t i = 0; i + 1 + 2 < frame.size(); i++) {
-                if (frame[i] == 0x44 && frame[i + 1] == 0x93) {
-                    // Additionally require BackwardFlow combinable marker 0x3C nearby
-                    // (best-effort) to reduce false positives.
-                    bool has_comb = false;
-                    for (size_t j = i; j < i + 6 && j < frame.size(); j++) {
-                        if (frame[j] == 0x3C) {
-                            has_comb = true;
-                            break;
-                        }
-                    }
-                    if (!has_comb)
-                        continue;
-
-                    bool okv = false;
-                    double raw = parse_u16_le_at(i + 2, &okv);
-                    if (okv) {
-                        double total_back_m3 = raw / 1000.0;
-                        setNumericValue("total_backwards", Unit::M3, total_back_m3);
-                        ESP_LOGI("APP", "(brummerhoop) fallback total_backwards_m3=%.6f at pos=%u raw=%.0f",
-                                 total_back_m3, (unsigned)i, raw);
-                        found = true;
-                        break;
-                    }
-                }
-            }
-            if (!found)
-                ESP_LOGW("APP", "(brummerhoop) fallback total_backwards not found in frame");
-        }
-        // end fallback search
-
-    } // end if (!has_total || !has_total_backwards)
-
-    } // end if (t->dv_entries.size() == 0)
-    (void)t;
-
-}
-
-// (Other helper methods/fields live in MeterCommonImplementation)
-
-} // namespace
-
-
 
