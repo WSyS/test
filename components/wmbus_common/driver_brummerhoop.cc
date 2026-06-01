@@ -98,10 +98,14 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
         }
 
 
-        ESP_LOGI("APP", "(brummerhoop) configured meter_id(yaml)=%lu packet meter_id(packet)=%lu",
-                 yaml_meter_id, packet_meter_id);
-        if (packet_meter_id == yaml_meter_id)
-            *id_match = true;
+	        unsigned long packet_meter_id_ul = 0;
+	        if (packet_meter_id.size() > 0)
+	            packet_meter_id_ul = strtoul(packet_meter_id.c_str(), nullptr, 16);
+
+	        ESP_LOGI("APP", "(brummerhoop) configured meter_id(yaml)=%lu packet meter_id(packet)=%lu",
+	                 yaml_meter_id, packet_meter_id_ul);
+	        if (packet_meter_id_ul == yaml_meter_id)
+	            *id_match = true;
     }
 
     if (out_analyzed != NULL && !out_analyzed->discard)
