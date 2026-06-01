@@ -168,7 +168,10 @@ void Driver::processContent(Telegram *t)
     // meterKeys() returns MeterKeys*; confidentiality_key is 16 bytes.
     // Copy into our fixed array.
     std::array<uint8_t, 16> key_{};
-    memcpy(key_.data(), key_bytes->confidentiality_key, 16);
+    // confidentiality_key kann als std::vector<uint8_t> gespeichert sein.
+    // Nimm daher die Datenadresse via .data().
+    memcpy(key_.data(), key_bytes->confidentiality_key.data(), 16);
+
 
     // Log as hex for debugging.
     char key_hex[33];
