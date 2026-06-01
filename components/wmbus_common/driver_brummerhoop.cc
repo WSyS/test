@@ -74,6 +74,46 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
                                                                  simulated, addresses,
                                                                  id_match, out_analyzed);
 
+    // Match logic: meter_id in YAML is the meter serial number (dll-id).
+    // Only mark id_match when ids are equal; do not affect decryption key.
+    if (id_match)
+    {
+        const std::vector<AddressExpression> &aexps = this->addressExpressions();
+        std::string yaml_meter_id_hex = (aexps.size() > 0) ? aexps[0].id : "0";
+        unsigned long yaml_meter_id_ul = 0;
+        try {
+            yaml_meter_id_ul = std::stoul(yaml_meter_id_hex, nullptr, 16);
+        } catch (...) {
+            yaml_meter_id_ul = 0;
+        }
+        const unsigned long yaml_meter_id = yaml_meter_id_ul;
+
+        std::string packet_meter_id_hex;
+        if (input_frame.size() > 8)
+        {
+            // dll-id bytes are located at fixed positions in the trimmed payload.
+            // input_frame[] is the frame without link-layer CRCs.
+            uchar id0 = input_frame[4];
+            uchar id1 = input_frame[5];
+            uchar id2 = input_frame[6];
+            uchar id3 = input_frame[7];
+            // addressExpressions expect human-readable dll-id in BCD order.
+            packet_meter_id_hex = tostrprintf("%02X%02X%02X%02X", id3, id2, id1, id0);
+        }
+
+        unsigned long packet_meter_id = 0;
+        try {
+            packet_meter_id = std::stoul(packet_meter_id_hex, nullptr, 16);
+        } catch (...) {
+            packet_meter_id = 0;
+        }
+
+        ESP_LOGI("APP", "(brummerhoop) configured meter_id(yaml)=%lu packet meter_id(packet)=%lu",
+                 yaml_meter_id, packet_meter_id);
+        if (packet_meter_id == yaml_meter_id)
+            *id_match = true;
+    }
+
     if (out_analyzed != NULL && !out_analyzed->discard)
         processContent(out_analyzed);
 
