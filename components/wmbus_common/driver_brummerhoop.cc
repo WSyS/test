@@ -240,20 +240,18 @@ void Driver::processContent(Telegram *t)
       const DVEntry &e = kv.second.second;
 
       // Include measurement type and combinable details.
+      // Avoid calling non-const methods on wrapper types; just log what we can
+      // via already-available public fields and cast to plain integers.
       ESP_LOGI(
           "APP",
-          "(brummerhoop) dv_entry[%d] key=%s mt=%s dif=%02x dif_type_low=%x vif=%04x combinables=%u combinables_raw=%u value=%s st=%d ta=%d su=%d",
+          "(brummerhoop) dv_entry[%d] key=%s mt=%s dif=%02x vif=%04x combinables=%u combinables_raw=%u value=%s",
           dumped, key.c_str(),
           toString(e.measurement_type),
           (unsigned)e.dif_vif_key.dif(),
-          (unsigned)(e.dif_vif_key.dif() & 0x0f),
           (unsigned)e.vif.intValue(),
           (unsigned)e.combinable_vifs.size(),
           (unsigned)e.combinable_vifs_raw.size(),
-          e.value.c_str(),
-          e.storage_nr.intValue(),
-          e.tariff_nr.intValue(),
-          e.subunit_nr.intValue());
+          e.value.c_str());
     }
 
     // Targeted scan: log any entry that looks like it could be backward flow
