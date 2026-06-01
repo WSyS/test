@@ -13,6 +13,8 @@ struct Driver : public virtual MeterCommonImplementation
                          bool *id_match, Telegram *out_analyzed = NULL) override;
 
     void processContent(Telegram *t) override;
+private:
+    std::vector<uchar> last_frame_;
 };
 
 
@@ -59,6 +61,8 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
                            bool *id_match, Telegram *out_analyzed)
 
 {
+    last_frame_ = input_frame;
+
     ESP_LOGI("APP", "(brummerhoop) handleTelegram entered simulated=%d frame_size=%d id_match_ptr=%p addresses_ptr=%p",
              (int)simulated, (int)input_frame.size(), (void *)id_match, (void *)addresses);
 
@@ -116,9 +120,9 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
 
     // If the core decided to call processContent for us, it will already be done.
     // Otherwise, invoke it here for consistent field extraction/logging.
-    if (out_analyzed != NULL && !out_analyzed->discard) {
-        processContent(out_analyzed);
-    }
+    //if (out_analyzed != NULL && !out_analyzed->discard) {
+    //    processContent(out_analyzed);
+    //}
 
 
 
@@ -368,9 +372,11 @@ void Driver::processContent(Telegram *t)
             // Use the telegram payload (content area) rather than the full
             // telegram frame. This is more consistent with how dvparser
             // extracts DIF/VIF entries after trimming CRCs.
-            std::vector<uchar> payload;
-            t->extractPayload(&payload);
-            const std::vector<uchar> &frame = payload;
+            const std::vector<uchar> &frame = last_frame_;
+
+            ESP_LOGI("APP",
+                     "(brummerhoop) fallback scan frame_size=%u",
+                     (unsigned)frame.size());
 
 
             auto parse_u32_le_at = [&](size_t pos, bool *ok) -> double {
