@@ -367,7 +367,7 @@ void Driver::processContent(Telegram *t)
             // to decode the exact value byte-lengths for known DIF formats.
             const std::vector<uchar> &frame = t->frame;
 
-
+            auto parse_u32_le_at = [&](size_t pos, bool *ok) -> double {
                 if (pos + 4 > frame.size()) {
                     *ok = false;
                     return 0.0;
@@ -379,16 +379,18 @@ void Driver::processContent(Telegram *t)
                 *ok = true;
                 return raw;
             };
-        auto parse_u16_le_at = [&](size_t pos, bool *ok) -> double {
-            if (pos + 2 > frame.size()) {
-                *ok = false;
-                return 0.0;
-            }
-            uint16_t raw = uint16_t(frame[pos + 0]) |
-                            (uint16_t(frame[pos + 1]) << 8);
-            *ok = true;
-            return raw;
-        };
+
+            auto parse_u16_le_at = [&](size_t pos, bool *ok) -> double {
+                if (pos + 2 > frame.size()) {
+                    *ok = false;
+                    return 0.0;
+                }
+                uint16_t raw = uint16_t(frame[pos + 0]) |
+                                (uint16_t(frame[pos + 1]) << 8);
+                *ok = true;
+                return raw;
+            };
+
 
         // total: search for DIF 0x04 followed by VIF 0x13.
         // We expect 4 data bytes after DIF/VIF.
