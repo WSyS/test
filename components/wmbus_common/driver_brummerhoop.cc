@@ -202,8 +202,7 @@ void Driver::processContent(Telegram *t)
 
 
     // AES key derivation:
-    // The framework already decodes the YAML `key:` into 16 bytes and exposes
-    // it via meterKeys(). We only use that already-decoded 16-byte key here.
+    // Only accept the YAML configured confidentiality_key.
     MeterKeys *key_bytes = meterKeys();
     if (key_bytes == NULL || key_bytes->confidentiality_key.size() != 16)
     {
@@ -213,6 +212,7 @@ void Driver::processContent(Telegram *t)
 
     std::array<uint8_t, 16> key_{};
     memcpy(key_.data(), key_bytes->confidentiality_key.data(), 16);
+
 
 
     // Log key hex for debugging.
@@ -234,70 +234,28 @@ void Driver::processContent(Telegram *t)
     memcpy(iv_.data(), last_frame_bytes_.data(), 16);
 
 
-    // EN 13757-3 / OMS AES-CBC (synchronous) IV is constructed from header
-    // bytes, not simply frame[0..15].
-    //
-    // In our brummerhoop examples:
-    // iv = M|A|version|device_type|access_number repeated until 16 bytes.
-    // With trimmed frame layout we approximate:
-    //  - last_frame_bytes_[2..5]   = M-field (manufacturer)
-    //  - last_frame_bytes_[6..9]   = A-field (meter id / dll-id)
-    //  - last_frame_bytes_[10]     = version
-    //  - last_frame_bytes_[11]     = device type
-    //  - last_frame_bytes_[12]     = access number (A)
-    // then repeat access number byte to fill 16.
-    //
-    // This matches your manual IV derivation where the Access Number bytes
-    // are repeated.
+    // IV construction must match decrypt_TPL_AES_CBC_IV() from wmbus_utils.cc.
+    // There: IV = M-field (dll_mfct_b[0..1]) | A-field (dll_a[0..5]) | 8x ACC (tpl_acc)
+    // Build IV directly from parsed Telegram fields.
 
-    if (last_frame_len_ < 16)
+    if (t == NULL)
         return;
 
-    // Rebuild IV
-    // NOTE: If your trimmed frame layout differs, adjust the indices.
-    uint8_t access = last_frame_len_ > 12 ? last_frame_bytes_[12] : 0x00;
+    uint8_t iv_acc = (uint8_t)t->tpl_acc;
 
-    // Default: copy first 16 as fallback (was the previous wrong approach)
-    memcpy(iv_.data(), last_frame_bytes_.data(), 16);
+    iv_[0] = t->dll_mfct_b[0];
+    iv_[1] = t->dll_mfct_b[1];
 
-    // Overwrite with constructed IV if we have enough header bytes.
-    // Build: C5 14 | 38 96 36 50 | 70 | 07 | 3B repeated (8 bytes total)
-    // which is: [manufacturer(2)][id(4)][version(1)][dev(1)][access(1)*8]
-    if (last_frame_len_ >= 13) {
-        size_t p = 0;
-        // manufacturer (2 bytes) from frame[4..5]?? try to follow observed trimmed examples:
-        // In your log trimmed starts with: 41 44 C5 14 38 96 36 50 70 07 8C 20 ...
-        // So use:
-        // manufacturer: bytes [2..3]
-        // id:         bytes [4..7]
-        // version:    byte  [8]
-        // devtype:    byte  [9]
-        // access:     byte  [10] (or [11]) depending on ELL/CI. We'll prefer [10]
-        uint8_t access_hdr = last_frame_len_ > 10 ? last_frame_bytes_[10] : access;
+    for (int j = 0; j < 6; ++j)
+        iv_[2 + j] = t->dll_a[j];
 
-        // manufacturer bytes
-        if (last_frame_len_ > 3) {
-            iv_[p++] = last_frame_bytes_[2];
-            iv_[p++] = last_frame_bytes_[3];
-        }
-        // id bytes (4)
-        for (int i = 0; i < 4; i++) {
-            size_t idx = 4 + (size_t)i;
-            iv_[p++] = (idx < last_frame_len_) ? last_frame_bytes_[idx] : 0x00;
-        }
-        // version
-        if (last_frame_len_ > 8) iv_[p++] = last_frame_bytes_[8];
-        else iv_[p++] = 0x00;
-        // devtype
-        if (last_frame_len_ > 9) iv_[p++] = last_frame_bytes_[9];
-        else iv_[p++] = 0x00;
-        // access repeated to fill
-        while (p < 16) iv_[p++] = access_hdr;
-    }
+    for (int j = 0; j < 8; ++j)
+        iv_[8 + j] = iv_acc;
 
-    // Locate ciphertext: EN13757-3 has decrypt check 0x2F2F right after
-    // IV-cfg and before ciphertext. In your examples, ciphertext starts
-    // at the first byte AFTER the 0x2F2F marker.
+    // Locate ciphertext: EN13757-3 has decrypt check bytes 0x2F2F right after
+    // IV-cfg and before ciphertext. The encrypted bytes start immediately
+    // after the 2f2f check marker.
+
     size_t check_pos = std::numeric_limits<size_t>::max();
     for (size_t p = 0; p + 1 < last_frame_len_; p++) {
         if (last_frame_bytes_[p] == 0x2F && last_frame_bytes_[p + 1] == 0x2F) {
