@@ -97,11 +97,12 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
                 uchar b2 = input_frame[6];
                 uchar b3 = input_frame[7];
 
+                // AddressExpressions compare appears to use reversed byte order.
                 unsigned long packet_meter_id =
-                    (unsigned long)b0 |
-                    ((unsigned long)b1 << 8) |
-                    ((unsigned long)b2 << 16) |
-                    ((unsigned long)b3 << 24);
+                    (unsigned long)b3 |
+                    ((unsigned long)b2 << 8) |
+                    ((unsigned long)b1 << 16) |
+                    ((unsigned long)b0 << 24);
 
                 ESP_LOGI("APP", "(brummerhoop) configured meter_id(yaml)=%lu packet meter_id(packet)=%lu",
                          yaml_meter_id, packet_meter_id);
