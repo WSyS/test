@@ -74,12 +74,15 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
                                                                  simulated, addresses,
                                                                  id_match, out_analyzed);
 
+    // If we can prove an ID match ourselves, force id_match=true.
+    // This must be independent of whether the generic parser could decode
+    // dv_entries (some variants require AES fallback).
+    bool forced_id_match = false;
+
         // Keep id_match matching logic minimal and exception-free.
-        // The core already extracted/compared ids; we only force-match when
-        // configured meter_id (YAML) equals the extracted dll-id from the
-        // telegram payload.
         if (id_match)
         {
+
             const std::vector<AddressExpression> &aexps = this->addressExpressions();
             std::string yaml_meter_id_hex = (aexps.size() > 0) ? aexps[0].id : "0";
 
@@ -113,8 +116,11 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
                 ESP_LOGI("APP", "(brummerhoop) configured meter_id(yaml)=%lu packet_meter_id_hex=%s",
                          yaml_meter_id, packet_meter_id_hex);
 
-                if (packet_meter_id == yaml_meter_id)
+                if (packet_meter_id == yaml_meter_id) {
+                    forced_id_match = true;
                     *id_match = true;
+                }
+
 
 
             }
@@ -123,7 +129,13 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
     if (out_analyzed != NULL && !out_analyzed->discard)
         processContent(out_analyzed);
 
+    // Ensure a truthful id_match result to the core for our ID.
+    // Even if fallback can't decode dv_entries, id match should still be set.
+    if (id_match && forced_id_match)
+        *id_match = true;
+
     return parent_ok;
+
 }
 
 Driver::Driver(MeterInfo &mi, DriverInfo &di)
