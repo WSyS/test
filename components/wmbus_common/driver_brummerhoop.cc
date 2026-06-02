@@ -117,6 +117,7 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
                          yaml_meter_id, packet_meter_id_hex);
 
                 if (yaml_meter_id_hex.size() > 0 && strcmp(packet_meter_id_hex, yaml_meter_id_hex.c_str()) == 0) {
+                    ESP_LOGI("APP", "(brummerhoop) forced_id_match = true");
                     forced_id_match = true;
                     *id_match = true;
                 }
