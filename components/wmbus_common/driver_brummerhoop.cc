@@ -198,20 +198,18 @@ void Driver::processContent(Telegram *t)
     // meter_keys_.confidentiality_key is stored as binary bytes already.
     // If key was not configured, fallback stays inactive.
 
-    auto key_bytes = meterKeys();
-    if (key_bytes == NULL)
+    // Load AES key from YAML (meter_id/key from config -> MeterInfo::key -> mi.key)
+    // meterKeys() already holds decoded binary key bytes in meter_keys_.confidentiality_key.
+    // We still avoid heap usage and copy only the 16 bytes.
+    MeterKeys *mk = meterKeys();
+    if (mk == NULL || mk->confidentiality_key.size() != 16)
     {
-        ESP_LOGE("APP", "(brummerhoop) AES fallback: meterKeys() is NULL");
+        ESP_LOGE("APP", "(brummerhoop) AES fallback: missing/invalid confidentiality_key (need 16 bytes)");
         return;
     }
 
-    // meterKeys() returns MeterKeys*; confidentiality_key is 16 bytes.
-    // Copy into our fixed array.
     std::array<uint8_t, 16> key_{};
-    // confidentiality_key kann als std::vector<uint8_t> gespeichert sein.
-    // Nimm daher die Datenadresse via .data().
-    memcpy(key_.data(), key_bytes->confidentiality_key.data(), 16);
-
+    memcpy(key_.data(), mk->confidentiality_key.data(), 16);
 
     // Log as hex for debugging.
     char key_hex[33];
@@ -219,6 +217,7 @@ void Driver::processContent(Telegram *t)
         sprintf(&key_hex[i * 2], "%02X", key_.data()[i]);
     key_hex[32] = '\0';
     ESP_LOGI("APP", "(brummerhoop) AES key loaded (len=32) %s", key_hex);
+
 
 
     // For Waterstarm/EN13757-3 AES-CBC: the IV is carried in the telegram payload
