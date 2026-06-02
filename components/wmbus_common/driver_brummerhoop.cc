@@ -99,12 +99,12 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
 
     if (packet_meter_id == yaml_meter_id)
     {
-        ESP_LOGI("APP", "(brummerhoop) IDs are the same");
+        ESP_LOGI("APP", "(brummerhoop) *id_match = true");
         if (id_match) {
             *id_match = true;
         }
     }
-    
+
 
     if (out_analyzed != NULL && !out_analyzed->discard)
         processContent(out_analyzed);
