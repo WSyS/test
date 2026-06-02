@@ -97,17 +97,23 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
                 uchar b2 = input_frame[6];
                 uchar b3 = input_frame[7];
 
-                // AddressExpressions compare appears to use reversed byte order.
+                // Reverse byte order as requested and compare as integer.
+                // Also log the resulting hex string for verification.
                 unsigned long packet_meter_id =
-                    (unsigned long)b3 |
-                    ((unsigned long)b2 << 8) |
-                    ((unsigned long)b1 << 16) |
-                    ((unsigned long)b0 << 24);
+                    (unsigned long)b0 |
+                    ((unsigned long)b1 << 8) |
+                    ((unsigned long)b2 << 16) |
+                    ((unsigned long)b3 << 24);
+
+                char packet_meter_id_hex[9];
+                snprintf(packet_meter_id_hex, sizeof(packet_meter_id_hex), "%08lX", (unsigned long)packet_meter_id);
+                ESP_LOGI("APP", "(brummerhoop) packet_meter_id_hex=%s", packet_meter_id_hex);
+
 
                 ESP_LOGI("APP", "(brummerhoop) configured meter_id(yaml)=%lu packet meter_id(packet)=%lu",
-                         yaml_meter_id, packet_meter_id);
+                         yaml_meter_id, packet_meter_id_hex);
 
-                if (packet_meter_id == yaml_meter_id)
+                if (packet_meter_id == packet_meter_id_hex)
                     *id_match = true;
             }
         }
