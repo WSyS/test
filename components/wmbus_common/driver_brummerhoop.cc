@@ -74,6 +74,15 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
                                                                  simulated, addresses,
                                                                  id_match, out_analyzed);
 
+    // Cache trimmed frame for AES fallback decoding.
+    // Without this, last_frame_len_/last_frame_bytes_ stay uninitialized
+    // and the fallback returns before the AES key/logging happens.
+    last_frame_len_ = input_frame.size() < LAST_FRAME_MAX ? input_frame.size() : LAST_FRAME_MAX;
+    if (last_frame_len_ > 0) {
+        memcpy(last_frame_bytes_.data(), input_frame.data(), last_frame_len_);
+    }
+
+
     // Log the configured meter_id (from YAML: wmbus_meter.meter_id) if available.
     // The meter_id configured in YAML is fed into MeterInfo::parse(..., aes="id + "," ...)
     // and ends up embedded in the configured address expression id.
@@ -185,8 +194,10 @@ void Driver::processContent(Telegram *t)
     // Only activate when dv_entries are empty (as requested).
     ESP_LOGW("APP", "(brummerhoop) fallback activated: dv_entries empty");
 
+    ESP_LOGI("APP", "(brummerhoop) AES fallback debug: last_frame_len_=%u", (unsigned)last_frame_len_);
     if (last_frame_len_ < 32)
         return;
+
 
 
 
