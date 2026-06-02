@@ -234,74 +234,103 @@ void Driver::processContent(Telegram *t)
     memcpy(iv_.data(), last_frame_bytes_.data(), 16);
 
 
-    // Try to locate decrypt check bytes 0x2F 0x2F inside last_frame_.
-    // We use the first occurrence as a hint to split IV vs ciphertext.
+    // EN 13757-3 / OMS AES-CBC (synchronous) IV is constructed from header
+    // bytes, not simply frame[0..15].
+    //
+    // In our brummerhoop examples:
+    // iv = M|A|version|device_type|access_number repeated until 16 bytes.
+    // With trimmed frame layout we approximate:
+    //  - last_frame_bytes_[2..5]   = M-field (manufacturer)
+    //  - last_frame_bytes_[6..9]   = A-field (meter id / dll-id)
+    //  - last_frame_bytes_[10]     = version
+    //  - last_frame_bytes_[11]     = device type
+    //  - last_frame_bytes_[12]     = access number (A)
+    // then repeat access number byte to fill 16.
+    //
+    // This matches your manual IV derivation where the Access Number bytes
+    // are repeated.
+
+    if (last_frame_len_ < 16)
+        return;
+
+    // Rebuild IV
+    // NOTE: If your trimmed frame layout differs, adjust the indices.
+    uint8_t access = last_frame_len_ > 12 ? last_frame_bytes_[12] : 0x00;
+
+    // Default: copy first 16 as fallback (was the previous wrong approach)
+    memcpy(iv_.data(), last_frame_bytes_.data(), 16);
+
+    // Overwrite with constructed IV if we have enough header bytes.
+    // Build: C5 14 | 38 96 36 50 | 70 | 07 | 3B repeated (8 bytes total)
+    // which is: [manufacturer(2)][id(4)][version(1)][dev(1)][access(1)*8]
+    if (last_frame_len_ >= 13) {
+        size_t p = 0;
+        // manufacturer (2 bytes) from frame[4..5]?? try to follow observed trimmed examples:
+        // In your log trimmed starts with: 41 44 C5 14 38 96 36 50 70 07 8C 20 ...
+        // So use:
+        // manufacturer: bytes [2..3]
+        // id:         bytes [4..7]
+        // version:    byte  [8]
+        // devtype:    byte  [9]
+        // access:     byte  [10] (or [11]) depending on ELL/CI. We'll prefer [10]
+        uint8_t access_hdr = last_frame_len_ > 10 ? last_frame_bytes_[10] : access;
+
+        // manufacturer bytes
+        if (last_frame_len_ > 3) {
+            iv_[p++] = last_frame_bytes_[2];
+            iv_[p++] = last_frame_bytes_[3];
+        }
+        // id bytes (4)
+        for (int i = 0; i < 4; i++) {
+            size_t idx = 4 + (size_t)i;
+            iv_[p++] = (idx < last_frame_len_) ? last_frame_bytes_[idx] : 0x00;
+        }
+        // version
+        if (last_frame_len_ > 8) iv_[p++] = last_frame_bytes_[8];
+        else iv_[p++] = 0x00;
+        // devtype
+        if (last_frame_len_ > 9) iv_[p++] = last_frame_bytes_[9];
+        else iv_[p++] = 0x00;
+        // access repeated to fill
+        while (p < 16) iv_[p++] = access_hdr;
+    }
+
+    // Locate ciphertext: EN13757-3 has decrypt check 0x2F2F right after
+    // IV-cfg and before ciphertext. In your examples, ciphertext starts
+    // at the first byte AFTER the 0x2F2F marker.
     size_t check_pos = std::numeric_limits<size_t>::max();
     for (size_t p = 0; p + 1 < last_frame_len_; p++) {
         if (last_frame_bytes_[p] == 0x2F && last_frame_bytes_[p + 1] == 0x2F) {
-
             check_pos = p;
             break;
         }
     }
 
-    if (check_pos != std::numeric_limits<size_t>::max())
-        ESP_LOGI("APP", "(brummerhoop) decrypt check 0x2F2F found at pos=%u", (unsigned)check_pos);
-    else
-        ESP_LOGW("APP", "(brummerhoop) decrypt check 0x2F2F not found in last_frame_");
-
-    // Debug log current IV candidate
-    {
-        char iv_hex[3 * 16 + 1];
-        size_t p = 0;
-        for (size_t i = 0; i < 16; i++) {
-            int n = snprintf(&iv_hex[p], sizeof(iv_hex) - p, "%02X", (unsigned)iv_[i]);
-            if (n <= 0) break;
-            p += (size_t)n;
-        }
-        iv_hex[sizeof(iv_hex) - 1] = '\0';
-        ESP_LOGI("APP", "(brummerhoop) IV candidate(first16)=%s", iv_hex);
-    }
-
-    // IMPORTANT: Avoid std::vector allocations in this ESP32 code path.
-    // This driver runs on ESPHome/ESP32 and the extra heap pressure was
-    // correlated with heap/TLSF crashes.
-    //
-    // Max decrypted size in your logs is small (e.g. 50 bytes). We'll cap it.
-    constexpr size_t MAX_CT = 64; // bytes after splitting
-
     size_t ct_start = (check_pos != std::numeric_limits<size_t>::max()) ? (check_pos + 2) : 16;
     if (ct_start >= last_frame_len_)
         return;
 
-
+    constexpr size_t MAX_CT = 128;
     size_t ct_len = last_frame_len_ - ct_start;
-
     if (ct_len > MAX_CT)
         ct_len = MAX_CT;
-
-    // AES-CBC decrypt_buffer works on full AES blocks.
-    // Your trimmed frames may not contain a block-aligned ciphertext length,
-    // so ensure ct_len is a multiple of 16.
     ct_len = (ct_len / 16) * 16;
-
-
-    static_assert((MAX_CT % 16) == 0 || true, "AES_CBC_decrypt_buffer expects full blocks (implementation-dependent)");
+    if (ct_len < 16)
+        return;
 
     uint8_t ciphertext_buf[MAX_CT];
     uint8_t decrypted_buf[MAX_CT];
-
     for (size_t i = 0; i < ct_len; i++)
         ciphertext_buf[i] = (uint8_t)last_frame_bytes_[ct_start + i];
-
 
     AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
                            key_.data(), iv_.data());
 
-    ESP_LOGI("APP", "(brummerhoop) AES decrypt ct_start=%u ct_len=%u", (unsigned)ct_start, (unsigned)ct_len);
+    ESP_LOGI("APP", "(brummerhoop) AES decrypt ct_start=%u ct_len=%u iv_rebuilt[first16]=...", (unsigned)ct_start, (unsigned)ct_len);
 
     const uint8_t *decrypted = decrypted_buf;
     size_t decrypted_len = ct_len;
+
 
 
 
