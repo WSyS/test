@@ -77,7 +77,6 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
     // If we can prove an ID match ourselves, force id_match=true.
     // This must be independent of whether the generic parser could decode
     // dv_entries (some variants require AES fallback).
-    bool forced_id_match = false;
 
         // Keep id_match matching logic minimal and exception-free.
         if (id_match)
@@ -118,8 +117,9 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
 
                 if (yaml_meter_id_hex.size() > 0 && strcmp(packet_meter_id_hex, yaml_meter_id_hex.c_str()) == 0) {
                     ESP_LOGI("APP", "(brummerhoop) forced_id_match = true");
-                    forced_id_match = true;
-                    *id_match = true;
+                    if (id_match) {
+                        *id_match = true;
+                    }
                 }
 
 
@@ -130,11 +130,6 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
 
     if (out_analyzed != NULL && !out_analyzed->discard)
         processContent(out_analyzed);
-
-    // Ensure a truthful id_match result to the core for our ID.
-    // Even if fallback can't decode dv_entries, id match should still be set.
-    if (id_match && forced_id_match)
-        *id_match = true;
 
     return parent_ok;
 
