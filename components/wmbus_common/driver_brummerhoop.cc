@@ -189,13 +189,27 @@ void Driver::processContent(Telegram *t)
         return;
 
 
-    // Key derivation:
-    // YAML uses `key: !secret ...` => MeterInfo::key.
-    std::vector<AddressExpression> aexps = this->addressExpressions();
-    std::string yaml_meter_key = aexps.size() > 0 ? aexps[0].id : "0";
-    yaml_meter_key = std::to_string(std::stoul(yaml_meter_key, nullptr, 16));
-    ESP_LOGI("APP", "(brummerhoop) configured key (yaml)=%s", yaml_meter_key.c_str());
 
+    // AES key derivation:
+    // The framework already decodes the YAML `key:` into 16 bytes and exposes
+    // it via meterKeys(). We only use that already-decoded 16-byte key here.
+    MeterKeys *key_bytes = meterKeys();
+    if (key_bytes == NULL || key_bytes->confidentiality_key.size() != 16)
+    {
+        ESP_LOGE("APP", "(brummerhoop) AES fallback: meterKeys() missing/invalid 16-byte AES key");
+        return;
+    }
+
+    std::array<uint8_t, 16> key_{};
+    memcpy(key_.data(), key_bytes->confidentiality_key.data(), 16);
+
+
+    // Log key hex for debugging.
+    char key_hex[33];
+    for (size_t i = 0; i < 16; i++)
+        sprintf(&key_hex[i * 2], "%02X", key_.data()[i]);
+    key_hex[32] = '\0';
+    ESP_LOGI("APP", "(brummerhoop) AES key loaded (len=32) %s", key_hex);
 
     // For Waterstarm/EN13757-3 AES-CBC: the IV is carried in the telegram payload
     // (tpl-cfg shows AES_CBC_IV). In practice, for our received trimmed frame
