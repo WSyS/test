@@ -211,6 +211,10 @@ void Driver::processContent(Telegram *t)
     std::array<uint8_t, 16> key_{};
     memcpy(key_.data(), mk->confidentiality_key.data(), 16);
 
+    // IV for AES-CBC: first 16 bytes of our last received (trimmed) frame.
+    // Ciphertext starts after the IV/decrypt-check separator.
+
+
     // Log key and configured address-expression id (debug).
     char key_hex[33];
     for (size_t i = 0; i < 16; i++)
