@@ -280,6 +280,12 @@ void Driver::processContent(Telegram *t)
     if (ct_len > MAX_CT)
         ct_len = MAX_CT;
 
+    // AES-CBC decrypt_buffer works on full AES blocks.
+    // Your trimmed frames may not contain a block-aligned ciphertext length,
+    // so ensure ct_len is a multiple of 16.
+    ct_len = (ct_len / 16) * 16;
+
+
     static_assert((MAX_CT % 16) == 0 || true, "AES_CBC_decrypt_buffer expects full blocks (implementation-dependent)");
 
     uint8_t ciphertext_buf[MAX_CT];
