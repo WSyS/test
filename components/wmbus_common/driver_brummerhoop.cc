@@ -309,20 +309,28 @@ void Driver::processContent(Telegram *t)
     ESP_LOGI("APP", "(brummerhoop) decrypted payload len=%u", (unsigned)decrypted_len);
 
 
-    // Debug: print first bytes of decrypted payload (avoid huge logs)
-    {
-        size_t dump_len = decrypted_len < 32 ? decrypted_len : 32;
 
-        char buf[3 * 32 + 1];
-        size_t p = 0;
-        for (size_t di = 0; di < dump_len; di++) {
-            int n = snprintf(&buf[p], sizeof(buf) - p, "%02X", (unsigned)decrypted[di]);
-            if (n <= 0) break;
-            p += (size_t)n;
+    // Log the full decrypted telegram as hex (not only a prefix), similar
+    // to the wmbusmeters.org dump style.
+    {
+        // Decrypted length is already capped by ct_len, so this will print all
+        // bytes that were decrypted.
+        size_t out_len = decrypted_len * 2 + 1;
+        char *buf = (char *)alloca(out_len);
+        if (buf) {
+            size_t p = 0;
+            for (size_t di = 0; di < decrypted_len && p + 2 < out_len; di++) {
+                int n = snprintf(&buf[p], out_len - p, "%02X", (unsigned)decrypted[di]);
+                if (n <= 0) break;
+                p += (size_t)n;
+            }
+            buf[out_len - 1] = '\0';
+            ESP_LOGI("APP", "(brummerhoop) decrypted full hex len=%u=%s", (unsigned)decrypted_len, buf);
+        } else {
+            ESP_LOGW("APP", "(brummerhoop) decrypted full hex: alloca failed");
         }
-        buf[sizeof(buf) - 1] = '\0';
-        ESP_LOGI("APP", "(brummerhoop) decrypted first %u bytes=%s", (unsigned)dump_len, buf);
     }
+
 
     // Search decrypted payload for known patterns:
 
