@@ -191,45 +191,10 @@ void Driver::processContent(Telegram *t)
 
     // Key derivation:
     // YAML uses `key: !secret ...` => MeterInfo::key.
-    // meters.cc loads it into meter_keys_.confidentiality_key (16 bytes).
-    // We reuse that decoded key here.
-
-    //
-    // meter_keys_.confidentiality_key is stored as binary bytes already.
-    // If key was not configured, fallback stays inactive.
-
-    // Key: The YAML `key:` is decoded by the core and stored in
-    // `meterKeys()->confidentiality_key` (16 bytes). We use that binary key
-    // material here.
-    MeterKeys *mk = meterKeys();
-    if (mk == NULL || mk->confidentiality_key.size() != 16)
-    {
-        ESP_LOGE("APP", "(brummerhoop) AES fallback: cannot load 16-byte AES key");
-        return;
-    }
-
-    std::array<uint8_t, 16> key_{};
-    memcpy(key_.data(), mk->confidentiality_key.data(), 16);
-
-    // IV for AES-CBC: first 16 bytes of our last received (trimmed) frame.
-    // Ciphertext starts after the IV/decrypt-check separator.
-
-
-    // Log key and configured address-expression id (debug).
-    char key_hex[33];
-    for (size_t i = 0; i < 16; i++)
-        sprintf(&key_hex[i * 2], "%02X", key_.data()[i]);
-    key_hex[32] = '\0';
-    ESP_LOGI("APP", "(brummerhoop) AES key loaded (len=32) %s", key_hex);
-
     std::vector<AddressExpression> aexps = this->addressExpressions();
     std::string yaml_meter_key = aexps.size() > 0 ? aexps[0].id : "0";
     yaml_meter_key = std::to_string(std::stoul(yaml_meter_key, nullptr, 16));
-    ESP_LOGI("APP", "(brummerhoop) configured meter_key(yaml addr-id)=%s", yaml_meter_key.c_str());
-
-
-
-
+    ESP_LOGI("APP", "(brummerhoop) configured key (yaml)=%s", yaml_meter_key.c_str());
 
 
     // For Waterstarm/EN13757-3 AES-CBC: the IV is carried in the telegram payload
