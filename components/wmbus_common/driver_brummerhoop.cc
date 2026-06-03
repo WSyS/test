@@ -47,28 +47,17 @@ static bool ok = registerDriver([](DriverInfo &di)
     });
 });
 
-static bool hexToBytesFixed16(const std::string &hex,
-                               std::array<uint8_t, 16> &out)
-{
-    // Expect 32 hex chars => 16 bytes AES key
-    if (hex.size() != 32)
-        return false;
 
-    for (size_t i = 0; i < 16; i++)
-    {
-        out[i] = (uint8_t)strtoul(hex.substr(i * 2, 2).c_str(), nullptr, 16);
-    }
-    return true;
-}
 
 bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame,
                            bool simulated, std::vector<Address> *addresses,
                            bool *id_match, Telegram *out_analyzed)
 {
-
-
     ESP_LOGI("APP", "(brummerhoop) handleTelegram entered simulated=%d frame_size=%d id_match_ptr=%p addresses_ptr=%p",
              (int)simulated, (int)input_frame.size(), (void *)id_match, (void *)addresses);
+
+
+
 
     bool parent_ok = MeterCommonImplementation::handleTelegram(about, input_frame,
                                                                  simulated, addresses,
@@ -77,6 +66,7 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
     // Cache trimmed frame for AES fallback decoding.
     // Without this, last_frame_len_/last_frame_bytes_ stay uninitialized
     // and the fallback returns before the AES key/logging happens.
+
     last_frame_len_ = input_frame.size() < LAST_FRAME_MAX ? input_frame.size() : LAST_FRAME_MAX;
     if (last_frame_len_ > 0) {
         memcpy(last_frame_bytes_.data(), input_frame.data(), last_frame_len_);
@@ -115,8 +105,11 @@ bool Driver::handleTelegram(AboutTelegram &about, std::vector<uchar> input_frame
     }
 
 
-    if (out_analyzed != NULL && !out_analyzed->discard)
+    if (out_analyzed != nullptr && !out_analyzed->discard)
         processContent(out_analyzed);
+
+
+
 
     return parent_ok;
 
@@ -180,10 +173,11 @@ Driver::Driver(MeterInfo &mi, DriverInfo &di)
 void Driver::processContent(Telegram *t)
 {
     // Definitive safety: the AES fallback must never dereference t when it is NULL.
-    if (t == NULL)
+    if (t == nullptr)
         return;
 
     // If the generic parser extracted dv_entries successfully, use the normal
+
     // pipeline.
     if (!t->dv_entries.empty())
     {
@@ -228,6 +222,7 @@ void Driver::processContent(Telegram *t)
         sprintf(&key_hex[i * 2], "%02X", key_.data()[i]);
     key_hex[32] = '\0';
     ESP_LOGI("APP", "(brummerhoop) AES key loaded (len=32) %s", key_hex);
+
 
     // IV for TPL AES-CBC must be built the same way as decrypt_TPL_AES_CBC_IV()
     // in wmbus_utils.cc.
@@ -329,10 +324,8 @@ void Driver::processContent(Telegram *t)
             // In short header parsing, tpl_acc is the first byte after tpl_ci.
             // Our trimmed cache includes that field.
             //acc = last_frame_bytes_[14];
-            //ESP_LOGE("APP", "(brummerhoop) acc_soll=%u", (unsigned)last_frame_bytes_[12]);
             acc = last_frame_bytes_[p + 1];
-            //acc = last_frame_bytes_[p - 1];
-            //ESP_LOGE("APP", "(brummerhoop) acc=%u", (unsigned)acc);
+
             break;
         }
     }
@@ -423,35 +416,6 @@ void Driver::processContent(Telegram *t)
     }
 
     // Log full decrypted payload as hex.
-    {
-        std::string dhx;
-        dhx.reserve(ct_len * 2);
-        for (size_t i = 0; i < ct_len; ++i) {
-            char b[3];
-            sprintf(b, "%02X", decrypted_buf[i]);
-            dhx += b;
-        }
-        ESP_LOGE("APP", "(brummerhoop) AES fallback decrypted full hex len=%u: %s",
-                 (unsigned)ct_len, dhx.c_str());
-    }
-
-
-    // Dump ciphertext (first 64 bytes) to avoid huge logs.
-    {
-        size_t dump_len = ct_len < 64 ? ct_len : 64;
-        std::string hx;
-        hx.reserve(dump_len * 2);
-        for (size_t i = 0; i < dump_len; ++i) {
-            char b[3];
-            sprintf(b, "%02X", ciphertext_buf[i]);
-            hx += b;
-        }
-        ESP_LOGI("APP", "(brummerhoop) AES fallback debug: ciphertext head=%s", hx.c_str());
-    }
-
-    // NOTE: legacy extra decrypt/log block removed.
-
-    // Log full decrypted payload as hex.
 
     {
         std::string dhx;
@@ -466,7 +430,10 @@ void Driver::processContent(Telegram *t)
     }
 
     // Scan for DIF/VIF markers 04 13 and 44 93.
+
     bool found_total = false;
+
+
     bool found_back = false;
     for (size_t i = 0; i + 5 < ct_len; ++i) {
         if (decrypted_buf[i] == 0x04 && decrypted_buf[i + 1] == 0x13) {
