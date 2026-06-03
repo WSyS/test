@@ -313,74 +313,36 @@ void Driver::processContent(Telegram *t)
         iv_acc = (uint8_t)t->tpl_acc;
     }
 
-    // Brute-force result must decrypt using the best IV only.
-    // Remove any leftover legacy decrypt/log code below.
-
-
-    ESP_LOGI("APP", "(brummerhoop) AES fallback debug: check_pos=%u ct_start=%u ct_len=%u last_frame_len_=%u tpl_acc=%u",
-             (unsigned)check_pos, (unsigned)ct_start, (unsigned)ct_len, (unsigned)last_frame_len_, (unsigned)iv_acc);
-
-    // Dump ciphertext length.
-    ESP_LOGI("APP", "(brummerhoop) AES fallback debug: ciphertext hex len=%u", (unsigned)ct_len);
-
-    // Try candidate offsets for M-field and A-field inside the trimmed frame.
-    // Candidate windows are intentionally small to keep CPU bounded.
-    // M-field is 2 bytes, A-field is 6 bytes.
-    int best_score = -1;
-    std::array<uint8_t, 16> best_iv_{};
-
-    for (int mo = 0; mo <= 24; ++mo) {
-        for (int ao = 0; ao <= 24; ++ao) {
-            if ((size_t)mo + 2 > last_frame_len_) continue;
-            if ((size_t)ao + 6 > last_frame_len_) continue;
-
-            std::array<uint8_t, 16> iv_{};
-            iv_[0] = last_frame_bytes_[mo];
-            iv_[1] = last_frame_bytes_[mo + 1];
-            for (int j = 0; j < 6; ++j) {
-                iv_[2 + j] = last_frame_bytes_[ao + j];
-            }
-            for (int j = 0; j < 8; ++j) {
-                iv_[8 + j] = iv_acc;
-            }
-
-            AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
-                                   safeButUnsafeVectorPtr(key_vec), iv_.data());
-
-            int score = 0;
-            for (size_t i = 0; i + 5 < ct_len; ++i) {
-                if (decrypted_buf[i] == 0x04 && decrypted_buf[i + 1] == 0x13) score += 5;
-                if (decrypted_buf[i] == 0x44 && decrypted_buf[i + 1] == 0x93) score += 7;
-            }
-
-            if (score > best_score) {
-                best_score = score;
-                best_iv_ = iv_;
-
-                char iv_hex[33];
-                for (size_t i = 0; i < 16; i++)
-                    sprintf(&iv_hex[i * 2], "%02X", best_iv_[i]);
-                iv_hex[32] = '\0';
-                ESP_LOGE("APP", "(brummerhoop) AES fallback IV candidate improved: mo=%d ao=%d score=%d IV=%s",
-                         mo, ao, best_score, iv_hex);
-            }
-        }
-    }
-
-    if (best_score < 0) {
-        ESP_LOGE("APP", "(brummerhoop) AES fallback: no IV candidates found");
+    // Deterministic IV (no brute force):
+    // IV = M(2 bytes) | A(6 bytes) | 8x ACC
+    // In our trimmed frame, M/A are expected at offsets [0..1] and [2..7].
+    std::array<uint8_t, 16> iv_{};
+    if (last_frame_len_ < 16) {
+        ESP_LOGE("APP", "(brummerhoop) AES fallback: trimmed frame too small for IV build");
         return;
     }
 
-    // Decrypt one final time with the best IV.
-    // Done: decrypted_buf already contains the last decrypt with the best IV above.
+    iv_[0] = last_frame_bytes_[0];
+    iv_[1] = last_frame_bytes_[1];
 
-    // Log best IV.
-    char best_iv_hex[33];
+    for (int j = 0; j < 6; ++j) {
+        iv_[2 + j] = last_frame_bytes_[2 + j];
+    }
+
+    for (int j = 0; j < 8; ++j) {
+        iv_[8 + j] = iv_acc;
+    }
+
+    char iv_hex[33];
     for (size_t i = 0; i < 16; i++)
-        sprintf(&best_iv_hex[i * 2], "%02X", best_iv_[i]);
-    best_iv_hex[32] = '\0';
-    ESP_LOGE("APP", "(brummerhoop) AES fallback best IV: score=%d IV=%s", best_score, best_iv_hex);
+        sprintf(&iv_hex[i * 2], "%02X", iv_[i]);
+    iv_hex[32] = '\0';
+
+    ESP_LOGE("APP", "(brummerhoop) AES fallback using deterministic IV=%s (iv_acc=%u)", iv_hex, (unsigned)iv_acc);
+
+    AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
+                           safeButUnsafeVectorPtr(key_vec), iv_.data());
+
 
     // Dump ciphertext head to avoid huge logs.
     {
