@@ -231,12 +231,18 @@ void Driver::processContent(Telegram *t)
 
     // IV for TPL AES-CBC must be built the same way as decrypt_TPL_AES_CBC_IV()
     // in wmbus_utils.cc.
-    // In our fallback mode, generic parsing might not have populated t->dll_a,
-    // so we reconstruct dll_mfct_b + dll_a from the trimmed frame bytes.
+    //
+    // Earlier versions of this fallback reconstructed the IV from trimmed
+    // raw bytes, but that is brittle because byte offsets differ between
+    // frame A/B trimming and different TPL formats.
+    //
+    // Here we use the parsed Telegram fields (t->tpl_* when available,
+    // otherwise t->dll_*), matching decrypt_TPL_AES_CBC_IV().
 
     // We must locate the ciphertext start by parsing TPL-CFG.
     // In OMS/wM-Bus the bytes after TPL-CFG (3025) are the AES-CBC ciphertext.
     // Do NOT search for 0x2F2F in the trimmed frame; 2F2F is expected in plaintext after decryption.
+
 
     size_t tpl_cfg_pos = std::numeric_limits<size_t>::max();
     for (size_t p = 0; p + 1 < last_frame_len_; ++p) {
@@ -282,45 +288,51 @@ void Driver::processContent(Telegram *t)
     if (ct_len > TARGET_CT)
         ct_len = TARGET_CT;
 
-    // OMS Security Mode 5 IV
-    uint8_t iv_acc = 0;
-
-    for (size_t i = 0; i + 4 < tpl_cfg_pos; i++)
-    {
-        if (last_frame_bytes_[i + 1] == 0x7A &&
-            last_frame_bytes_[i + 3] == 0x00 &&
-            last_frame_bytes_[i + 4] == 0x30)
-        {
-            iv_acc = last_frame_bytes_[i + 2];
-            break;
-        }
-    }
-
+    // IV: we will build it from already parsed Telegram fields.
+    // (Old code tried to derive ACC from raw bytes; that was unreliable.)
     std::array<uint8_t, 16> iv_{};
+
 
     if (last_frame_len_ < 16) {
         ESP_LOGE("APP", "(brummerhoop) AES fallback: trimmed frame too small for IV build");
         return;
     }
 
-    // Manufacturer
-    iv_[0] = last_frame_bytes_[2];
-    iv_[1] = last_frame_bytes_[3];
+    // IV fields following decrypt_TPL_AES_CBC_IV() in wmbus_utils.cc:
+    // - If tpl_id_found: use TPL M-field + TPL A-field, else use DLL equivalents.
+    // - ACC is repeated 8x.
+    //
+    // We intentionally do not reconstruct these bytes from last_frame_bytes_
+    // because that is offset-sensitive.
 
-    // Address
-    iv_[2] = last_frame_bytes_[4];
-    iv_[3] = last_frame_bytes_[5];
-    iv_[4] = last_frame_bytes_[6];
-    iv_[5] = last_frame_bytes_[7];
+    if (t->tpl_id_found) {
+        // M-field (2 bytes)
+        iv_[0] = t->tpl_mfct_b[0];
+        iv_[1] = t->tpl_mfct_b[1];
 
-    // Version + Device Type
-    iv_[6] = last_frame_bytes_[8];
-    iv_[7] = last_frame_bytes_[9];
+        // A-field (6 bytes)
+        for (int j = 0; j < 6; ++j) {
+            iv_[2 + j] = t->tpl_a[j];
+        }
 
-    // ACC repeated 8x
-    for (int i = 0; i < 8; i++)
-    {
-        iv_[8 + i] = iv_acc;
+        // ACC
+        for (int j = 0; j < 8; ++j) {
+            iv_[8 + j] = t->tpl_acc;
+        }
+    } else {
+        // M-field (2 bytes)
+        iv_[0] = t->dll_mfct_b[0];
+        iv_[1] = t->dll_mfct_b[1];
+
+        // A-field (6 bytes)
+        for (int j = 0; j < 6; ++j) {
+            iv_[2 + j] = t->dll_a[j];
+        }
+
+        // ACC repeated 8x
+        for (int j = 0; j < 8; ++j) {
+            iv_[8 + j] = t->tpl_acc;
+        }
     }
 
 
@@ -329,7 +341,8 @@ void Driver::processContent(Telegram *t)
         sprintf(&iv_hex[i * 2], "%02X", iv_[i]);
     iv_hex[32] = '\0';
 
-    ESP_LOGE("APP", "(brummerhoop) AES fallback using deterministic IV=%s (iv_acc=%u)", iv_hex, (unsigned)iv_acc);
+    ESP_LOGE("APP", "(brummerhoop) AES fallback using Telegram-derived IV=%s", iv_hex);
+
 
     // Offset sweep: ciphertext start may be off by a few bytes depending on
     // how trimmed frames are constructed.
