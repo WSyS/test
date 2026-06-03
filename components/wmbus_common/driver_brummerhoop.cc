@@ -392,43 +392,11 @@ void Driver::processContent(Telegram *t)
 
     // (ciphertext head/decrypted hex logging + marker scan remain unchanged below)
 
-    int best_score = -1;
-    size_t best_ct_start = ct_start_base;
+    // NOTE: a previous implementation contained a second redundant sweep over
+    // ct_start only. That made the selected best plaintext non-deterministic
+    // and could keep the first part wrong even when ACC-bruteforce found a
+    // better IV. The redundant sweep has been removed.
 
-    for (size_t shift = 0; shift <= SWEEP_MAX_SHIFT; ++shift) {
-        size_t ct_start = ct_start_base + shift;
-        if (ct_start + ct_len > last_frame_len_)
-            break;
-
-        memcpy(ciphertext_buf, &last_frame_bytes_[ct_start], ct_len);
-
-        AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
-                               safeButUnsafeVectorPtr(key_vec), iv_.data());
-
-        // Score how many expected markers exist.
-        int score = 0;
-        for (size_t i = 0; i + 5 < ct_len; ++i) {
-            if (decrypted_buf[i] == 0x04 && decrypted_buf[i + 1] == 0x13)
-                score += 3;
-            if (decrypted_buf[i] == 0x44 && decrypted_buf[i + 1] == 0x93)
-                score += 2;
-        }
-
-        if (score > best_score) {
-            best_score = score;
-            best_ct_start = ct_start;
-        }
-
-        ESP_LOGI("APP", "(brummerhoop) AES fallback sweep shift=%u score=%d ct_start=%u", (unsigned)shift, score, (unsigned)ct_start);
-    }
-
-    // Decrypt once more using the best offset so the marker logs below match.
-    memcpy(ciphertext_buf, &last_frame_bytes_[best_ct_start], ct_len);
-    AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
-                           safeButUnsafeVectorPtr(key_vec), iv_.data());
-
-    ESP_LOGE("APP", "(brummerhoop) AES fallback best_ct_start=%u best_score=%d ct_len=%u",
-             (unsigned)best_ct_start, best_score, (unsigned)ct_len);
 
 
 
