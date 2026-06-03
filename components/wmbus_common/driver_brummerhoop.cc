@@ -240,8 +240,13 @@ void Driver::processContent(Telegram *t)
     // There: IV = M-field (dll_mfct_b[0..1]) | A-field (dll_a[0..5]) | 8x ACC (tpl_acc)
     // Build IV directly from parsed Telegram fields.
 
-    uint8_t iv_acc = (uint8_t)t->tpl_acc;
+    if (t->dll_a.size() < 6) {
+        ESP_LOGE("APP", "(brummerhoop) AES fallback: invalid dll_a size=%u (need>=6)",
+                 (unsigned)t->dll_a.size());
+        return;
+    }
 
+    uint8_t iv_acc = (uint8_t)t->tpl_acc;
 
     iv_[0] = t->dll_mfct_b[0];
     iv_[1] = t->dll_mfct_b[1];
@@ -251,6 +256,7 @@ void Driver::processContent(Telegram *t)
 
     for (int j = 0; j < 8; ++j)
         iv_[8 + j] = iv_acc;
+
 
     // Locate ciphertext: EN13757-3 has decrypt check bytes 0x2F2F right after
     // IV-cfg and before ciphertext. The encrypted bytes start immediately
