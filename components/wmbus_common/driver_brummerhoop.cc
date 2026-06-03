@@ -261,51 +261,33 @@ void Driver::processContent(Telegram *t)
     }
 
     // Skip TPL-CFG (2 bytes: 30 25).
-    // In the trimmed payload for Waterstarm/EN13757-3 the AES-CBC ciphertext
-    // starts immediately after 30 25 (your raw example shows ciphertext
-    // blocks starting with D68F...).
-    size_t ct_start = tpl_cfg_pos + 2;
-
-    if (ct_start >= last_frame_len_)
+    size_t ct_start_base = tpl_cfg_pos + 2;
+    if (ct_start_base >= last_frame_len_)
         return;
-
 
     constexpr size_t MAX_CT = 128;
-    size_t ct_len = last_frame_len_ - ct_start;
-    if (ct_len > MAX_CT)
-        ct_len = MAX_CT;
+    size_t ct_len_base = last_frame_len_ - ct_start_base;
+    if (ct_len_base > MAX_CT)
+        ct_len_base = MAX_CT;
 
     // ct_len must be a multiple of 16 for AES-CBC.
-    ct_len = ((ct_len / 16) * 16);
-    if (ct_len < 16)
+    ct_len_base = ((ct_len_base / 16) * 16);
+    if (ct_len_base < 16)
         return;
 
-    // For this brummerhoop/waterstarm profile we typically expect at least 3 AES blocks
-    // so that total and backwards total are inside the decrypted plaintext.
     // Prefer decrypting exactly 48 bytes when available.
     constexpr size_t TARGET_CT = 48;
+    size_t ct_len = ct_len_base;
     if (ct_len > TARGET_CT)
         ct_len = TARGET_CT;
 
-
-    // Ciphertext starts at ct_start and is ct_len bytes.
-    uint8_t ciphertext_buf[MAX_CT];
-    uint8_t decrypted_buf[MAX_CT];
-    memcpy(ciphertext_buf, &last_frame_bytes_[ct_start], ct_len);
-
     // IV = M(2 bytes) | A(6 bytes) | ACC(8 bytes)
-    // For fallback mode (dv_entries empty) we cannot rely on t->tpl_acc being populated,
-    // so we derive ACC directly from the cached trimmed frame.
-    // In the observed trimmed frame layout, ACC matches the access number at index 8.
     uint8_t iv_acc = 0;
     if (last_frame_len_ > 8) {
         iv_acc = last_frame_bytes_[8];
     }
 
-
-    // Deterministic IV (no brute force):
-    // IV = M(2 bytes) | A(6 bytes) | 8x ACC
-    // In our trimmed frame, M/A are expected at offsets [0..1] and [2..7].
+    // Deterministic IV (no brute force)
     std::array<uint8_t, 16> iv_{};
     if (last_frame_len_ < 16) {
         ESP_LOGE("APP", "(brummerhoop) AES fallback: trimmed frame too small for IV build");
@@ -330,8 +312,51 @@ void Driver::processContent(Telegram *t)
 
     ESP_LOGE("APP", "(brummerhoop) AES fallback using deterministic IV=%s (iv_acc=%u)", iv_hex, (unsigned)iv_acc);
 
+    // Offset sweep: ciphertext start may be off by a few bytes depending on
+    // how trimmed frames are constructed.
+    constexpr size_t SWEEP_MAX_SHIFT = 16; // try ct_start_base + 0..15
+
+    uint8_t ciphertext_buf[MAX_CT];
+    uint8_t decrypted_buf[MAX_CT];
+
+    int best_score = -1;
+    size_t best_ct_start = ct_start_base;
+
+    for (size_t shift = 0; shift <= SWEEP_MAX_SHIFT; ++shift) {
+        size_t ct_start = ct_start_base + shift;
+        if (ct_start + ct_len > last_frame_len_)
+            break;
+
+        memcpy(ciphertext_buf, &last_frame_bytes_[ct_start], ct_len);
+
+        AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
+                               safeButUnsafeVectorPtr(key_vec), iv_.data());
+
+        // Score how many expected markers exist.
+        int score = 0;
+        for (size_t i = 0; i + 5 < ct_len; ++i) {
+            if (decrypted_buf[i] == 0x04 && decrypted_buf[i + 1] == 0x13)
+                score += 3;
+            if (decrypted_buf[i] == 0x44 && decrypted_buf[i + 1] == 0x93)
+                score += 2;
+        }
+
+        if (score > best_score) {
+            best_score = score;
+            best_ct_start = ct_start;
+        }
+
+        ESP_LOGI("APP", "(brummerhoop) AES fallback sweep shift=%u score=%d ct_start=%u", (unsigned)shift, score, (unsigned)ct_start);
+    }
+
+    // Decrypt once more using the best offset so the marker logs below match.
+    memcpy(ciphertext_buf, &last_frame_bytes_[best_ct_start], ct_len);
     AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
                            safeButUnsafeVectorPtr(key_vec), iv_.data());
+
+    ESP_LOGE("APP", "(brummerhoop) AES fallback best_ct_start=%u best_score=%d ct_len=%u",
+             (unsigned)best_ct_start, best_score, (unsigned)ct_len);
+
 
 
     // Dump ciphertext head to avoid huge logs.
