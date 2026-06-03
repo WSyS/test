@@ -224,43 +224,208 @@ void Driver::processContent(Telegram *t)
     key_hex[32] = '\0';
     ESP_LOGI("APP", "(brummerhoop) AES key loaded (len=32) %s", key_hex);
 
-    // For Waterstarm/EN13757-3 AES-CBC: the IV is carried in the telegram payload
-    // (tpl-cfg shows AES_CBC_IV). In practice, for our received trimmed frame
-    // we use the first 16 bytes of last_frame_ as IV.
-    // Ciphertext: everything after the first 16 bytes.
-    if (last_frame_len_ <= 16)
+    // IV for TPL AES-CBC must be built the same way as decrypt_TPL_AES_CBC_IV()
+    // in wmbus_utils.cc.
+    // In our fallback mode, generic parsing might not have populated t->dll_a,
+    // so we reconstruct dll_mfct_b + dll_a from the trimmed frame bytes.
+
+    // We locate the AES ciphertext by searching for the 0x2F2F check marker.
+    size_t check_pos = std::numeric_limits<size_t>::max();
+    for (size_t p = 0; p + 1 < last_frame_len_; p++) {
+        if (last_frame_bytes_[p] == 0x2F && last_frame_bytes_[p + 1] == 0x2F) {
+            check_pos = p;
+            break;
+        }
+    }
+
+    size_t ct_start = (check_pos != std::numeric_limits<size_t>::max()) ? (check_pos + 2) : 16;
+    if (ct_start >= last_frame_len_)
         return;
 
+    constexpr size_t MAX_CT = 128;
+    size_t ct_len = last_frame_len_ - ct_start;
+    if (ct_len > MAX_CT)
+        ct_len = MAX_CT;
 
-    std::array<uint8_t, 16> iv_{};
-    memcpy(iv_.data(), last_frame_bytes_.data(), 16);
+    // Must be a multiple of 16 for AES-CBC.
+    ct_len = (ct_len / 16) * 16;
+    if (ct_len < 16)
+        return;
 
+    // Ciphertext starts at ct_start and is ct_len bytes.
+    uint8_t ciphertext_buf[MAX_CT];
+    uint8_t decrypted_buf[MAX_CT];
+    memcpy(ciphertext_buf, &last_frame_bytes_[ct_start], ct_len);
 
-    // IV construction must match decrypt_TPL_AES_CBC_IV() from wmbus_utils.cc.
-    // There: IV = M-field (dll_mfct_b[0..1]) | A-field (dll_a[0..5]) | 8x ACC (tpl_acc)
-    // Build IV directly from parsed Telegram fields.
+    // We'll brute-force IV offsets for M/A fields because t->dll_a is empty in fallback.
+    // IV = M(2 bytes) | A(6 bytes) | ACC(8 bytes)
+    uint8_t iv_acc = 0;
+    if (t) {
+        iv_acc = (uint8_t)t->tpl_acc;
+    }
 
-    if (t->dll_a.size() < 6) {
-        ESP_LOGE("APP", "(brummerhoop) AES fallback: invalid dll_a size=%u (need>=6)",
-                 (unsigned)t->dll_a.size());
+    ESP_LOGI("APP", "(brummerhoop) AES fallback debug: check_pos=%u ct_start=%u ct_len=%u last_frame_len_=%u tpl_acc=%u",
+             (unsigned)check_pos, (unsigned)ct_start, (unsigned)ct_len, (unsigned)last_frame_len_, (unsigned)iv_acc);
+
+    // Dump ciphertext length.
+    ESP_LOGI("APP", "(brummerhoop) AES fallback debug: ciphertext hex len=%u", (unsigned)ct_len);
+
+    // Try candidate offsets for M-field and A-field inside the trimmed frame.
+    // Candidate windows are intentionally small to keep CPU bounded.
+    // M-field is 2 bytes, A-field is 6 bytes.
+    int best_score = -1;
+    std::array<uint8_t, 16> best_iv_{};
+
+    for (int mo = 0; mo <= 24; ++mo) {
+        for (int ao = 0; ao <= 24; ++ao) {
+            if ((size_t)mo + 2 > last_frame_len_) continue;
+            if ((size_t)ao + 6 > last_frame_len_) continue;
+
+            std::array<uint8_t, 16> iv_{};
+            iv_[0] = last_frame_bytes_[mo];
+            iv_[1] = last_frame_bytes_[mo + 1];
+            for (int j = 0; j < 6; ++j) {
+                iv_[2 + j] = last_frame_bytes_[ao + j];
+            }
+            for (int j = 0; j < 8; ++j) {
+                iv_[8 + j] = iv_acc;
+            }
+
+            AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
+                                   safeButUnsafeVectorPtr(key_), iv_.data());
+
+            int score = 0;
+            for (size_t i = 0; i + 5 < ct_len; ++i) {
+                if (decrypted_buf[i] == 0x04 && decrypted_buf[i + 1] == 0x13) score += 5;
+                if (decrypted_buf[i] == 0x44 && decrypted_buf[i + 1] == 0x93) score += 7;
+            }
+
+            if (score > best_score) {
+                best_score = score;
+                best_iv_ = iv_;
+
+                char iv_hex[33];
+                for (size_t i = 0; i < 16; i++)
+                    sprintf(&iv_hex[i * 2], "%02X", best_iv_[i]);
+                iv_hex[32] = '\0';
+                ESP_LOGE("APP", "(brummerhoop) AES fallback IV candidate improved: mo=%d ao=%d score=%d IV=%s",
+                         mo, ao, best_score, iv_hex);
+            }
+        }
+    }
+
+    if (best_score < 0) {
+        ESP_LOGE("APP", "(brummerhoop) AES fallback: no IV candidates found");
         return;
     }
 
-    uint8_t iv_acc = (uint8_t)t->tpl_acc;
+    // Decrypt one final time with the best IV.
+    AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
+                           safeButUnsafeVectorPtr(key_), best_iv_.data());
 
-    iv_[0] = t->dll_mfct_b[0];
-    iv_[1] = t->dll_mfct_b[1];
+    // Log best IV.
+    char best_iv_hex[33];
+    for (size_t i = 0; i < 16; i++)
+        sprintf(&best_iv_hex[i * 2], "%02X", best_iv_[i]);
+    best_iv_hex[32] = '\0';
+    ESP_LOGE("APP", "(brummerhoop) AES fallback best IV: score=%d IV=%s", best_score, best_iv_hex);
 
-    for (int j = 0; j < 6; ++j)
-        iv_[2 + j] = t->dll_a[j];
+    // Dump ciphertext head to avoid huge logs.
+    {
+        size_t dump_len = ct_len < 64 ? ct_len : 64;
+        std::string hx;
+        hx.reserve(dump_len * 2);
+        for (size_t i = 0; i < dump_len; ++i) {
+            char b[3];
+            sprintf(b, "%02X", ciphertext_buf[i]);
+            hx += b;
+        }
+        ESP_LOGI("APP", "(brummerhoop) AES fallback debug: ciphertext head=%s", hx.c_str());
+    }
 
-    for (int j = 0; j < 8; ++j)
-        iv_[8 + j] = iv_acc;
+    // Log full decrypted payload as hex.
+    {
+        std::string dhx;
+        dhx.reserve(ct_len * 2);
+        for (size_t i = 0; i < ct_len; ++i) {
+            char b[3];
+            sprintf(b, "%02X", decrypted_buf[i]);
+            dhx += b;
+        }
+        ESP_LOGE("APP", "(brummerhoop) AES fallback decrypted full hex len=%u: %s",
+                 (unsigned)ct_len, dhx.c_str());
+    }
 
 
-    // Locate ciphertext: EN13757-3 has decrypt check bytes 0x2F2F right after
-    // IV-cfg and before ciphertext. The encrypted bytes start immediately
-    // after the 2f2f check marker.
+    // Dump ciphertext (first 64 bytes) to avoid huge logs.
+    {
+        size_t dump_len = ct_len < 64 ? ct_len : 64;
+        std::string hx;
+        hx.reserve(dump_len * 2);
+        for (size_t i = 0; i < dump_len; ++i) {
+            char b[3];
+            sprintf(b, "%02X", ciphertext_buf[i]);
+            hx += b;
+        }
+        ESP_LOGI("APP", "(brummerhoop) AES fallback debug: ciphertext head=%s", hx.c_str());
+    }
+
+    AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
+                           safeButUnsafeVectorPtr(key_), iv_.data());
+
+    // Log full decrypted payload as hex.
+    {
+        std::string dhx;
+        dhx.reserve(ct_len * 2);
+        for (size_t i = 0; i < ct_len; ++i) {
+            char b[3];
+            sprintf(b, "%02X", decrypted_buf[i]);
+            dhx += b;
+        }
+        ESP_LOGE("APP", "(brummerhoop) AES fallback decrypted full hex len=%u: %s",
+                 (unsigned)ct_len, dhx.c_str());
+    }
+
+    // Scan for DIF/VIF markers 04 13 and 44 93.
+    bool found_total = false;
+    bool found_back = false;
+    for (size_t i = 0; i + 5 < ct_len; ++i) {
+        if (decrypted_buf[i] == 0x04 && decrypted_buf[i + 1] == 0x13) {
+            found_total = true;
+            uint32_t raw = decrypted_buf[i + 2] |
+                             (uint32_t(decrypted_buf[i + 3]) << 8) |
+                             (uint32_t(decrypted_buf[i + 4]) << 16) |
+                             (uint32_t(decrypted_buf[i + 5]) << 24);
+            double total_m3 = raw / 1000.0;
+            ESP_LOGE("APP", "(brummerhoop) AES fallback found total marker at pos=%u raw=%u total_m3=%f",
+                     (unsigned)i, (unsigned)raw, total_m3);
+            if (!this->hasNumericValue(this->findFieldInfo("total", Quantity::Volume))) {
+                setNumericValue("total", Unit::M3, total_m3);
+            } else {
+                setNumericValue("total", Unit::M3, total_m3);
+            }
+        }
+        if (decrypted_buf[i] == 0x44 && decrypted_buf[i + 1] == 0x93) {
+            found_back = true;
+            if (i + 3 < ct_len) {
+                uint16_t raw = decrypted_buf[i + 2] |
+                                 (uint16_t(decrypted_buf[i + 3]) << 8);
+                double total_back_m3 = raw / 1000.0;
+                ESP_LOGE("APP", "(brummerhoop) AES fallback found total_back marker at pos=%u raw=%u total_back_m3=%f",
+                         (unsigned)i, (unsigned)raw, total_back_m3);
+                setNumericValue("total_backwards", Unit::M3, total_back_m3);
+            }
+        }
+    }
+
+    if (!found_total)
+        ESP_LOGE("APP", "(brummerhoop) AES fallback debug: DIF/VIF total marker 04 13 not found in decrypted payload");
+    if (!found_back)
+        ESP_LOGE("APP", "(brummerhoop) AES fallback debug: DIF/VIF total_back marker 44 93 not found in decrypted payload");
+
+    // Done.
+    return;
+
 
     size_t check_pos = std::numeric_limits<size_t>::max();
     for (size_t p = 0; p + 1 < last_frame_len_; p++) {
