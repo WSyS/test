@@ -234,62 +234,36 @@ void Driver::processContent(Telegram *t)
     // In our fallback mode, generic parsing might not have populated t->dll_a,
     // so we reconstruct dll_mfct_b + dll_a from the trimmed frame bytes.
 
-    // We locate the AES ciphertext by searching for the 0x2F2F check marker.
-    size_t check_pos = std::numeric_limits<size_t>::max();
-    for (size_t p = 0; p + 1 < last_frame_len_; p++) {
-        if (last_frame_bytes_[p] == 0x2F && last_frame_bytes_[p + 1] == 0x2F) {
-            check_pos = p;
+    // We must locate the ciphertext start by parsing TPL-CFG.
+    // In OMS/wM-Bus the bytes after TPL-CFG (3025) are the AES-CBC ciphertext.
+    // Do NOT search for 0x2F2F in the trimmed frame; 2F2F is expected in plaintext after decryption.
+
+    size_t tpl_cfg_pos = std::numeric_limits<size_t>::max();
+    for (size_t p = 0; p + 1 < last_frame_len_; ++p) {
+        if (last_frame_bytes_[p] == 0x30 && last_frame_bytes_[p + 1] == 0x25) {
+            tpl_cfg_pos = p;
             break;
         }
     }
 
-    if (check_pos == std::numeric_limits<size_t>::max()) {
-        // 2F2F decrypt check bytes not found => ct_start guess would be wrong.
+    if (tpl_cfg_pos == std::numeric_limits<size_t>::max()) {
         // Dump trimmed frame A for diagnostics.
-        {
-            std::string hx;
-            hx.reserve(last_frame_len_ * 2);
-            for (size_t i = 0; i < last_frame_len_; ++i) {
-                char b[3];
-                sprintf(b, "%02X", last_frame_bytes_[i]);
-                hx += b;
-            }
-            ESP_LOGE("APP", "(brummerhoop) AES fallback: 2F2F not found in trimmed frame. last_frame_len_=%u trimmed_hex=%s",
-                     (unsigned)last_frame_len_, hx.c_str());
+        std::string hx;
+        hx.reserve(last_frame_len_ * 2);
+        for (size_t i = 0; i < last_frame_len_; ++i) {
+            char b[3];
+            sprintf(b, "%02X", last_frame_bytes_[i]);
+            hx += b;
         }
-
-        // Also dump around TPL-CFG marker 0x30 0x25 if present.
-        {
-            size_t cfg_pos = std::numeric_limits<size_t>::max();
-            for (size_t p = 0; p + 1 < last_frame_len_; ++p) {
-                if (last_frame_bytes_[p] == 0x30 && last_frame_bytes_[p + 1] == 0x25) {
-                    cfg_pos = p;
-                    break;
-                }
-            }
-            if (cfg_pos != std::numeric_limits<size_t>::max()) {
-                size_t from = (cfg_pos > 8) ? (cfg_pos - 8) : 0;
-                size_t to = (cfg_pos + 80 < last_frame_len_) ? (cfg_pos + 80) : last_frame_len_;
-                std::string hx;
-                hx.reserve((to - from) * 2);
-                for (size_t i = from; i < to; ++i) {
-                    char b[3];
-                    sprintf(b, "%02X", last_frame_bytes_[i]);
-                    hx += b;
-                }
-                ESP_LOGE("APP", "(brummerhoop) AES fallback: TPL-CFG 30 25 found at pos=%u dump[%u..%u)=%s",
-                         (unsigned)cfg_pos, (unsigned)from, (unsigned)to, hx.c_str());
-            } else {
-                ESP_LOGE("APP", "(brummerhoop) AES fallback: TPL-CFG 30 25 not found in trimmed frame");
-            }
-        }
-
+        ESP_LOGE("APP", "(brummerhoop) AES fallback: TPL-CFG 30 25 not found in trimmed frame. last_frame_len_=%u trimmed_hex=%s",
+                 (unsigned)last_frame_len_, hx.c_str());
         return;
     }
 
-    size_t ct_start = (check_pos + 2);
+    size_t ct_start = tpl_cfg_pos + 2;
     if (ct_start >= last_frame_len_)
         return;
+
 
     constexpr size_t MAX_CT = 128;
     size_t ct_len = last_frame_len_ - ct_start;
