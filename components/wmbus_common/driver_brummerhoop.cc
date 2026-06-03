@@ -388,8 +388,7 @@ void Driver::processContent(Telegram *t)
 
         if (score > best_score) {
             best_score = score;
-            //added + 2
-            best_ct_start = ct_start + 2;
+            best_ct_start = ct_start;
         }
 
         ESP_LOGI("APP", "(brummerhoop) AES fallback sweep shift=%u score=%d ct_start=%u", (unsigned)shift, score, (unsigned)ct_start);
@@ -482,10 +481,11 @@ void Driver::processContent(Telegram *t)
         }
         if (decrypted_buf[i] == 0x44 && decrypted_buf[i + 1] == 0x93) {
             found_back = true;
-            if (i + 3 < ct_len) {
-                //next line was + 2
+            if (i + 6 < ct_len) {
                 uint16_t raw = decrypted_buf[i + 3] |
-                                 (uint16_t(decrypted_buf[i + 3]) << 8);
+                             (uint32_t(decrypted_buf[i + 4]) << 8) |
+                             (uint32_t(decrypted_buf[i + 5]) << 16) |
+                             (uint32_t(decrypted_buf[i + 6]) << 24);
                 double total_back_m3 = raw / 1000.0;
                 ESP_LOGE("APP", "(brummerhoop) AES fallback found total_back marker at pos=%u raw=%u total_back_m3=%f",
                          (unsigned)i, (unsigned)raw, total_back_m3);
