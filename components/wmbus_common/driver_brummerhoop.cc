@@ -272,15 +272,18 @@ void Driver::processContent(Telegram *t)
     if (ct_len > MAX_CT)
         ct_len = MAX_CT;
 
-    // Some telegram variants may contain additional trailing bytes (e.g. CRC or padding)
-    // that are already removed by the wmbus trimming. To avoid losing an entire AES block,
-    // ensure we still decrypt up to the last complete 16-byte block.
+    // ct_len must be a multiple of 16 for AES-CBC.
     ct_len = ((ct_len / 16) * 16);
-
-    // Must be a multiple of 16 for AES-CBC.
-    ct_len = (ct_len / 16) * 16;
     if (ct_len < 16)
         return;
+
+    // For this brummerhoop/waterstarm profile we typically expect at least 3 AES blocks
+    // so that total and backwards total are inside the decrypted plaintext.
+    // Prefer decrypting exactly 48 bytes when available.
+    constexpr size_t TARGET_CT = 48;
+    if (ct_len > TARGET_CT)
+        ct_len = TARGET_CT;
+
 
     // Ciphertext starts at ct_start and is ct_len bytes.
     uint8_t ciphertext_buf[MAX_CT];
