@@ -301,12 +301,13 @@ void Driver::processContent(Telegram *t)
     }
 
     // Manufacturer
-    iv_[0] = last_frame_bytes_[1];
-    iv_[1] = last_frame_bytes_[2];
+    iv_[0] = last_frame_bytes_[2];
+    iv_[1] = last_frame_bytes_[3];
 
-    // Address field
-    for (int j = 0; j < 6; ++j)
-        iv_[2 + j] = last_frame_bytes_[3 + j];
+    for (int j = 0; j < 6; j++)
+    {
+        iv_[2 + j] = last_frame_bytes_[4 + j];
+    }
 
     // ACC (access number / access count) is 1 byte and must be taken from
     // the protocol header (TPL ACC field), not from a fixed byte offset in
