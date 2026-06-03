@@ -282,43 +282,115 @@ void Driver::processContent(Telegram *t)
     if (ct_len > TARGET_CT)
         ct_len = TARGET_CT;
 
-    // IV = M(2 bytes) | A(6 bytes) | ACC(8 bytes)
-    uint8_t iv_acc = 0;
-    if (last_frame_len_ > 8) {
-        iv_acc = last_frame_bytes_[8];
-    }
+    // IV for OMS Mode 5 is expected to be:
+    // M(2 bytes) | Address(4 bytes) | Version(DeviceType)(2 bytes) | ACC x8
+    // ACC is the access number and must be repeated 8x in the IV.
+    // In this driver we don't have a full OMS parser, but we can reconstruct the IV
+    // from the trimmed frame prefix (best-effort):
+    // M(2)=frame[0..1], Address(4)=frame[2..5], Version/DevType(2)=frame[6..7].
 
-    // Deterministic IV (no brute force)
-    std::array<uint8_t, 16> iv_{};
+    // We will no longer guess ACC from a fixed index; instead we brute-force ACC values
+    // in a small candidate range derived from the trimmed payload.
+
+    constexpr size_t SWEEP_MAX_SHIFT = 16; // try ct_start_base + 0..15
+
+    std::array<uint8_t, 16> iv_best_{};
+    uint8_t best_iv_acc = 0;
     if (last_frame_len_ < 16) {
         ESP_LOGE("APP", "(brummerhoop) AES fallback: trimmed frame too small for IV build");
         return;
     }
 
-    iv_[0] = last_frame_bytes_[0];
-    iv_[1] = last_frame_bytes_[1];
+    // Build the constant IV prefix (M+Address+Version/DevType). ACC is brute-forced.
+    uint8_t m0 = last_frame_bytes_[0];
+    uint8_t m1 = last_frame_bytes_[1];
+    uint8_t a0 = last_frame_bytes_[2];
+    uint8_t a1 = last_frame_bytes_[3];
+    uint8_t a2 = last_frame_bytes_[4];
+    uint8_t a3 = last_frame_bytes_[5];
+    uint8_t ver0 = last_frame_bytes_[6];
+    uint8_t dev0 = last_frame_bytes_[7];
 
-    for (int j = 0; j < 6; ++j) {
-        iv_[2 + j] = last_frame_bytes_[2 + j];
-    }
-
-    for (int j = 0; j < 8; ++j) {
-        iv_[8 + j] = iv_acc;
-    }
-
-    char iv_hex[33];
-    for (size_t i = 0; i < 16; i++)
-        sprintf(&iv_hex[i * 2], "%02X", iv_[i]);
-    iv_hex[32] = '\0';
-
-    ESP_LOGE("APP", "(brummerhoop) AES fallback using deterministic IV=%s (iv_acc=%u)", iv_hex, (unsigned)iv_acc);
-
-    // Offset sweep: ciphertext start may be off by a few bytes depending on
-    // how trimmed frames are constructed.
-    constexpr size_t SWEEP_MAX_SHIFT = 16; // try ct_start_base + 0..15
-
+    // Offset sweep (ciphertext start) remains.
     uint8_t ciphertext_buf[MAX_CT];
     uint8_t decrypted_buf[MAX_CT];
+
+    // ACC brute-force search range.
+    // Access numbers observed are typically small (often 0x00..0x7F). We'll try 0..127.
+    constexpr uint8_t ACC_MIN = 0;
+    constexpr uint8_t ACC_MAX = 127;
+
+    int best_score = -1;
+    size_t best_ct_start = ct_start_base;
+
+    for (uint8_t acc = ACC_MIN; acc <= ACC_MAX; ++acc) {
+        std::array<uint8_t, 16> iv_{};
+        iv_[0] = m0;
+        iv_[1] = m1;
+        iv_[2] = a0;
+        iv_[3] = a1;
+        iv_[4] = a2;
+        iv_[5] = a3;
+        iv_[6] = ver0;
+        iv_[7] = dev0;
+        for (int j = 0; j < 8; ++j) {
+            iv_[8 + j] = acc;
+        }
+
+        // Decrypt each ciphertext-start candidate with this IV and score markers.
+        for (size_t shift = 0; shift <= SWEEP_MAX_SHIFT; ++shift) {
+            size_t ct_start = ct_start_base + shift;
+            if (ct_start + ct_len > last_frame_len_)
+                break;
+
+            memcpy(ciphertext_buf, &last_frame_bytes_[ct_start], ct_len);
+
+            AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
+                                   safeButUnsafeVectorPtr(key_vec), iv_.data());
+
+            int score = 0;
+            for (size_t i = 0; i + 5 < ct_len; ++i) {
+                if (decrypted_buf[i] == 0x04 && decrypted_buf[i + 1] == 0x13)
+                    score += 3;
+                if (decrypted_buf[i] == 0x44 && decrypted_buf[i + 1] == 0x93)
+                    score += 2;
+            }
+
+            if (score > best_score) {
+                best_score = score;
+                best_ct_start = ct_start;
+                best_iv_acc = acc;
+                // keep best decrypted in decrypted_buf for later logging
+            }
+
+            ESP_LOGI("APP", "(brummerhoop) AES fallback sweep acc=%u shift=%u score=%d ct_start=%u", (unsigned)acc, (unsigned)shift, score, (unsigned)ct_start);
+        }
+    }
+
+    ESP_LOGE("APP", "(brummerhoop) AES fallback best acc=%u best_ct_start=%u best_score=%d ct_len=%u",
+             (unsigned)best_iv_acc, (unsigned)best_ct_start, best_score, (unsigned)ct_len);
+
+    // Decrypt once more using best IV/offset so marker scan below sees the best plaintext.
+    std::array<uint8_t, 16> iv_best_{};
+    iv_best_[0] = m0;
+    iv_best_[1] = m1;
+    iv_best_[2] = a0;
+    iv_best_[3] = a1;
+    iv_best_[4] = a2;
+    iv_best_[5] = a3;
+    iv_best_[6] = ver0;
+    iv_best_[7] = dev0;
+    for (int j = 0; j < 8; ++j) {
+        iv_best_[8 + j] = best_iv_acc;
+    }
+
+    memcpy(ciphertext_buf, &last_frame_bytes_[best_ct_start], ct_len);
+    AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
+                           safeButUnsafeVectorPtr(key_vec), iv_best_.data());
+
+    // From here on, decrypted_buf is already the best candidate plaintext.
+
+    // (ciphertext head/decrypted hex logging + marker scan remain unchanged below)
 
     int best_score = -1;
     size_t best_ct_start = ct_start_base;
