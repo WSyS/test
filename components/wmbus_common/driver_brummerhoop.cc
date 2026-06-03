@@ -308,11 +308,33 @@ void Driver::processContent(Telegram *t)
     for (int j = 0; j < 6; ++j)
         iv_[2 + j] = last_frame_bytes_[3 + j];
 
-    // Access number
-    uint8_t acc = last_frame_bytes_[13];
+    // ACC (access number / access count) is 1 byte and must be taken from
+    // the protocol header (TPL ACC field), not from a fixed byte offset in
+    // the trimmed frame.
+    //
+    // In our trimmed frame cache we may not know the exact position of
+    // TPL-ACC, but using a wrong ACC breaks the IV and corrupts the first
+    // CBC block while leaving later blocks plausible.
+    //
+    // Heuristic fallback: search backwards from the end for a TPL short header
+    // that matches our configuration (TPL-CI 0x7A/0x72/0x78/0x79/0x7B variants).
+    // If not found, keep ACC=0 (worst case: first block wrong).
+
+    uint8_t acc = 0;
+    for (size_t p = 0; p + 2 < last_frame_len_; ++p) {
+        // Potential TPL CI values for short header are typically 0x7A/0x78/0x79/0x72.
+        if (last_frame_bytes_[p] == 0x7A || last_frame_bytes_[p] == 0x72 ||
+            last_frame_bytes_[p] == 0x78 || last_frame_bytes_[p] == 0x79) {
+            // In short header parsing, tpl_acc is the first byte after tpl_ci.
+            // Our trimmed cache includes that field.
+            acc = last_frame_bytes_[p + 1];
+            break;
+        }
+    }
 
     for (int j = 0; j < 8; ++j)
         iv_[8 + j] = acc;
+
 
 
     char iv_hex[33];
@@ -326,7 +348,8 @@ void Driver::processContent(Telegram *t)
     // Offset sweep: ciphertext start may be off by a few bytes depending on
     // how trimmed frames are constructed.
     // Expand search window.
-    constexpr size_t SWEEP_MAX_SHIFT = 8;
+    constexpr size_t SWEEP_MAX_SHIFT = 64;
+
 
     uint8_t ciphertext_buf[MAX_CT];
     uint8_t decrypted_buf[MAX_CT];
