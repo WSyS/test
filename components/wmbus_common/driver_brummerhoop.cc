@@ -280,12 +280,15 @@ void Driver::processContent(Telegram *t)
     uint8_t decrypted_buf[MAX_CT];
     memcpy(ciphertext_buf, &last_frame_bytes_[ct_start], ct_len);
 
-    // We'll brute-force IV offsets for M/A fields because t->dll_a is empty in fallback.
     // IV = M(2 bytes) | A(6 bytes) | ACC(8 bytes)
+    // For fallback mode (dv_entries empty) we cannot rely on t->tpl_acc being populated,
+    // so we derive ACC directly from the cached trimmed frame.
+    // In the observed trimmed frame layout, ACC matches the access number at index 8.
     uint8_t iv_acc = 0;
-    if (t) {
-        iv_acc = (uint8_t)t->tpl_acc;
+    if (last_frame_len_ > 8) {
+        iv_acc = last_frame_bytes_[8];
     }
+
 
     // Deterministic IV (no brute force):
     // IV = M(2 bytes) | A(6 bytes) | 8x ACC
