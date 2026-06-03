@@ -260,7 +260,9 @@ void Driver::processContent(Telegram *t)
         return;
     }
 
-    size_t ct_start = tpl_cfg_pos + 2;
+    // Skip TPL-CFG (2 bytes: 30 25) and the 2 bytes decrypt-check (commonly 2F2F)
+    // to align CBC blocks with the plaintext layout.
+    size_t ct_start = tpl_cfg_pos + 4;
     if (ct_start >= last_frame_len_)
         return;
 
