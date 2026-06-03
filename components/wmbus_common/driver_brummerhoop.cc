@@ -327,11 +327,11 @@ void Driver::processContent(Telegram *t)
             last_frame_bytes_[p] == 0x78 || last_frame_bytes_[p] == 0x79) {
             // In short header parsing, tpl_acc is the first byte after tpl_ci.
             // Our trimmed cache includes that field.
-            //uint8_t acc = last_frame_bytes_[12];
-            ESP_LOGE("APP", "(brummerhoop) acc_soll=%u", (unsigned)last_frame_bytes_[12]);
+            acc = last_frame_bytes_[12];
+            //ESP_LOGE("APP", "(brummerhoop) acc_soll=%u", (unsigned)last_frame_bytes_[12]);
             //acc = last_frame_bytes_[p + 1];
-            acc = last_frame_bytes_[p - 1];
-            ESP_LOGE("APP", "(brummerhoop) acc=%u", (unsigned)acc);
+            //acc = last_frame_bytes_[p - 1];
+            //ESP_LOGE("APP", "(brummerhoop) acc=%u", (unsigned)acc);
             break;
         }
     }
