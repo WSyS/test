@@ -342,7 +342,8 @@ void Driver::processContent(Telegram *t)
         sprintf(&iv_hex[i * 2], "%02X", iv_[i]);
     iv_hex[32] = '\0';
 
-    ESP_LOGE("APP", "(brummerhoop) AES fallback using raw-frame IV=%s", iv_hex);
+    ESP_LOGE("APP", "(brummerhoop) AES fallback using raw-frame IV=%s acc=%u", iv_hex, (unsigned)acc);
+
 
 
     // Offset sweep: ciphertext start may be off by a few bytes depending on
