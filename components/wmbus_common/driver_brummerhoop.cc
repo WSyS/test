@@ -215,6 +215,11 @@ void Driver::processContent(Telegram *t)
     std::array<uint8_t, 16> key_{};
     memcpy(key_.data(), key_bytes->confidentiality_key.data(), 16);
 
+    // AES helper expects std::vector<uchar>.
+    std::vector<uchar> key_vec(16);
+    memcpy(key_vec.data(), key_.data(), 16);
+
+
 
 
     // Log key hex for debugging.
@@ -296,7 +301,7 @@ void Driver::processContent(Telegram *t)
             }
 
             AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
-                                   safeButUnsafeVectorPtr(key_), iv_.data());
+                                   safeButUnsafeVectorPtr(key_vec), iv_.data());
 
             int score = 0;
             for (size_t i = 0; i + 5 < ct_len; ++i) {
@@ -374,10 +379,10 @@ void Driver::processContent(Telegram *t)
         ESP_LOGI("APP", "(brummerhoop) AES fallback debug: ciphertext head=%s", hx.c_str());
     }
 
-    AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
-                           safeButUnsafeVectorPtr(key_), iv_.data());
+    // NOTE: legacy extra decrypt/log block removed.
 
     // Log full decrypted payload as hex.
+
     {
         std::string dhx;
         dhx.reserve(ct_len * 2);
