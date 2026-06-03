@@ -329,8 +329,7 @@ void Driver::processContent(Telegram *t)
     }
 
     // Decrypt one final time with the best IV.
-    AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
-                           safeButUnsafeVectorPtr(key_), best_iv_.data());
+    // Done: decrypted_buf already contains the last decrypt with the best IV above.
 
     // Log best IV.
     char best_iv_hex[33];
