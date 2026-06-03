@@ -190,6 +190,8 @@ void Driver::processContent(Telegram *t)
         return;
     }
 
+
+
     // Fallback: brute-force AES-CBC decode of the encrypted user data.
     // Only activate when dv_entries are empty (as requested).
     ESP_LOGW("APP", "(brummerhoop) fallback activated: dv_entries empty");
@@ -238,10 +240,8 @@ void Driver::processContent(Telegram *t)
     // There: IV = M-field (dll_mfct_b[0..1]) | A-field (dll_a[0..5]) | 8x ACC (tpl_acc)
     // Build IV directly from parsed Telegram fields.
 
-    if (t == NULL)
-        return;
-
     uint8_t iv_acc = (uint8_t)t->tpl_acc;
+
 
     iv_[0] = t->dll_mfct_b[0];
     iv_[1] = t->dll_mfct_b[1];
