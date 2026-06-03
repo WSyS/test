@@ -260,9 +260,12 @@ void Driver::processContent(Telegram *t)
         return;
     }
 
-    // Skip TPL-CFG (2 bytes: 30 25) and the 2 bytes decrypt-check (commonly 2F2F)
-    // to align CBC blocks with the plaintext layout.
-    size_t ct_start = tpl_cfg_pos + 4;
+    // Skip TPL-CFG (2 bytes: 30 25).
+    // In the trimmed payload for Waterstarm/EN13757-3 the AES-CBC ciphertext
+    // starts immediately after 30 25 (your raw example shows ciphertext
+    // blocks starting with D68F...).
+    size_t ct_start = tpl_cfg_pos + 2;
+
     if (ct_start >= last_frame_len_)
         return;
 
