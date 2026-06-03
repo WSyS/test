@@ -264,6 +264,10 @@ void Driver::processContent(Telegram *t)
         iv_acc = (uint8_t)t->tpl_acc;
     }
 
+    // Brute-force result must decrypt using the best IV only.
+    // Remove any leftover legacy decrypt/log code below.
+
+
     ESP_LOGI("APP", "(brummerhoop) AES fallback debug: check_pos=%u ct_start=%u ct_len=%u last_frame_len_=%u tpl_acc=%u",
              (unsigned)check_pos, (unsigned)ct_start, (unsigned)ct_len, (unsigned)last_frame_len_, (unsigned)iv_acc);
 
@@ -425,149 +429,8 @@ void Driver::processContent(Telegram *t)
 
     // Done.
     return;
-
-
-    size_t check_pos = std::numeric_limits<size_t>::max();
-    for (size_t p = 0; p + 1 < last_frame_len_; p++) {
-        if (last_frame_bytes_[p] == 0x2F && last_frame_bytes_[p + 1] == 0x2F) {
-            check_pos = p;
-            break;
-        }
-    }
-
-    size_t ct_start = (check_pos != std::numeric_limits<size_t>::max()) ? (check_pos + 2) : 16;
-    if (ct_start >= last_frame_len_)
-        return;
-
-    constexpr size_t MAX_CT = 128;
-    size_t ct_len = last_frame_len_ - ct_start;
-    if (ct_len > MAX_CT)
-        ct_len = MAX_CT;
-    ct_len = (ct_len / 16) * 16;
-    if (ct_len < 16)
-        return;
-
-    uint8_t ciphertext_buf[MAX_CT];
-    uint8_t decrypted_buf[MAX_CT];
-    for (size_t i = 0; i < ct_len; i++)
-        ciphertext_buf[i] = (uint8_t)last_frame_bytes_[ct_start + i];
-
-    AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
-                           key_.data(), iv_.data());
-
-    ESP_LOGI("APP", "(brummerhoop) AES decrypt ct_start=%u ct_len=%u iv_rebuilt[first16]=...", (unsigned)ct_start, (unsigned)ct_len);
-
-    const uint8_t *decrypted = decrypted_buf;
-    size_t decrypted_len = ct_len;
-
-
-
-
-
-    ESP_LOGI("APP", "(brummerhoop) decrypted payload len=%u", (unsigned)decrypted_len);
-
-
-
-    // Log the full decrypted telegram as hex (not only a prefix), similar
-    // to the wmbusmeters.org dump style.
-    {
-        // Decrypted length is already capped by ct_len, so this will print all
-        // bytes that were decrypted.
-        size_t out_len = decrypted_len * 2 + 1;
-        char *buf = (char *)alloca(out_len);
-        if (buf) {
-            size_t p = 0;
-            for (size_t di = 0; di < decrypted_len && p + 2 < out_len; di++) {
-                int n = snprintf(&buf[p], out_len - p, "%02X", (unsigned)decrypted[di]);
-                if (n <= 0) break;
-                p += (size_t)n;
-            }
-            buf[out_len - 1] = '\0';
-            ESP_LOGI("APP", "(brummerhoop) decrypted full hex len=%u=%s", (unsigned)decrypted_len, buf);
-        } else {
-            ESP_LOGW("APP", "(brummerhoop) decrypted full hex: alloca failed");
-        }
-    }
-
-
-    // Search decrypted payload for known patterns:
-
-    // total_m3:  DIF=0x04, VIF=0x13, followed by 4 data bytes (little endian),
-    //            where raw is in liters and scale is /1000 => m3.
-    // total_backwards: DIF=0x44, VIF=0x93, followed by 2 data bytes (little endian)
-    //                   scale /1000.
-    auto parse_u32_le_at = [&](size_t pos, bool *ok) -> uint32_t {
-        if (pos + 4 > decrypted_len) {
-
-            *ok = false;
-            return 0;
-        }
-        uint32_t raw = (uint32_t(decrypted[pos + 0])) |
-                       (uint32_t(decrypted[pos + 1]) << 8) |
-                       (uint32_t(decrypted[pos + 2]) << 16) |
-                       (uint32_t(decrypted[pos + 3]) << 24);
-        *ok = true;
-        return raw;
-    };
-
-    auto parse_u16_le_at = [&](size_t pos, bool *ok) -> uint16_t {
-        if (pos + 2 > decrypted_len) {
-
-            *ok = false;
-            return 0;
-        }
-        uint16_t raw = uint16_t(decrypted[pos + 0]) |
-                       (uint16_t(decrypted[pos + 1]) << 8);
-        *ok = true;
-        return raw;
-    };
-
-    bool have_total = false;
-    bool have_total_backwards = false;
-
-    for (size_t i = 0; i + 6 < decrypted_len; i++)
-
-    {
-        if (!have_total && decrypted[i] == 0x04 && decrypted[i + 1] == 0x13)
-        {
-            bool okv = false;
-            uint32_t raw = parse_u32_le_at(i + 2, &okv);
-            if (okv)
-            {
-                double total_m3 = raw / 1000.0;
-                setNumericValue("total", Unit::M3, total_m3);
-                ESP_LOGI("APP", "(brummerhoop) fallback total: raw=%u => %.6fm3 at pos=%u",
-                         (unsigned)raw, total_m3, (unsigned)i);
-                have_total = true;
-            }
-        }
-
-        if (!have_total_backwards && decrypted[i] == 0x44 && decrypted[i + 1] == 0x93)
-        {
-            bool okv = false;
-            uint16_t raw = parse_u16_le_at(i + 2, &okv);
-            if (okv)
-            {
-                double total_back_m3 = raw / 1000.0;
-                setNumericValue("total_backwards", Unit::M3, total_back_m3);
-                ESP_LOGI("APP", "(brummerhoop) fallback total_backwards: raw=%u => %.6fm3 at pos=%u",
-                         (unsigned)raw, total_back_m3, (unsigned)i);
-                have_total_backwards = true;
-            }
-        }
-
-        if (have_total && have_total_backwards)
-            break;
-    }
-
-    if (!have_total)
-        ESP_LOGW("APP", "(brummerhoop) fallback: total not found in decrypted payload");
-
-    if (!have_total_backwards)
-        ESP_LOGW("APP", "(brummerhoop) fallback: total_backwards not found in decrypted payload");
-
-    // Nothing else to do in fallback mode.
 }
 
 } // namespace
+
 
