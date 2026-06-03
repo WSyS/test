@@ -272,6 +272,11 @@ void Driver::processContent(Telegram *t)
     if (ct_len > MAX_CT)
         ct_len = MAX_CT;
 
+    // Some telegram variants may contain additional trailing bytes (e.g. CRC or padding)
+    // that are already removed by the wmbus trimming. To avoid losing an entire AES block,
+    // ensure we still decrypt up to the last complete 16-byte block.
+    ct_len = ((ct_len / 16) * 16);
+
     // Must be a multiple of 16 for AES-CBC.
     ct_len = (ct_len / 16) * 16;
     if (ct_len < 16)
