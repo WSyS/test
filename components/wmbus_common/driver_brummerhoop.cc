@@ -336,12 +336,24 @@ void Driver::processContent(Telegram *t)
         iv_[1] = t->dll_mfct_b[1];
 
         // A-field (6 bytes)
+        // If t->dll_a is not available (size < 6), reconstruct it from the
+        // trimmed frame around the TPL-CFG marker position.
         if (t->dll_a.size() < 6) {
-            ESP_LOGE("APP", "(brummerhoop) AES fallback: dll_a invalid (size=%u)", (unsigned)t->dll_a.size());
-            return;
-        }
-        for (int j = 0; j < 6; ++j) {
-            iv_[2 + j] = t->dll_a[j];
+            // Empiric rule for this brummerhoop telegram layout:
+            // dll_a is 6 bytes located 10 bytes before tpl_cfg_pos.
+            // Example (from your log):
+            //   tpl_cfg_pos=16 => dll_a_guess = last_frame[6..11] = 78 C2 06 07 A9 D0
+            if (tpl_cfg_pos < 10) {
+                ESP_LOGE("APP", "(brummerhoop) AES fallback: cannot reconstruct dll_a (tpl_cfg_pos=%u)", (unsigned)tpl_cfg_pos);
+                return;
+            }
+            for (int j = 0; j < 6; ++j) {
+                iv_[2 + j] = last_frame_bytes_[tpl_cfg_pos - 10 + j];
+            }
+        } else {
+            for (int j = 0; j < 6; ++j) {
+                iv_[2 + j] = t->dll_a[j];
+            }
         }
 
         // ACC repeated 8x
