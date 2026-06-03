@@ -305,12 +305,23 @@ void Driver::processContent(Telegram *t)
     // We intentionally do not reconstruct these bytes from last_frame_bytes_
     // because that is offset-sensitive.
 
+    // Build IV only if we have a sane set of fields.
+    // Fallback can be invoked in situations where TPL fields are not fully
+    // populated.
     if (t->tpl_id_found) {
+        if (t->tpl_mfct_b[0] == 0 && t->tpl_mfct_b[1] == 0) {
+            ESP_LOGE("APP", "(brummerhoop) AES fallback: tpl_id_found but tpl_mfct_b invalid, aborting");
+            return;
+        }
         // M-field (2 bytes)
         iv_[0] = t->tpl_mfct_b[0];
         iv_[1] = t->tpl_mfct_b[1];
 
         // A-field (6 bytes)
+        if (t->tpl_a.size() < 6) {
+            ESP_LOGE("APP", "(brummerhoop) AES fallback: tpl_a invalid (size=%u)", (unsigned)t->tpl_a.size());
+            return;
+        }
         for (int j = 0; j < 6; ++j) {
             iv_[2 + j] = t->tpl_a[j];
         }
@@ -325,6 +336,10 @@ void Driver::processContent(Telegram *t)
         iv_[1] = t->dll_mfct_b[1];
 
         // A-field (6 bytes)
+        if (t->dll_a.size() < 6) {
+            ESP_LOGE("APP", "(brummerhoop) AES fallback: dll_a invalid (size=%u)", (unsigned)t->dll_a.size());
+            return;
+        }
         for (int j = 0; j < 6; ++j) {
             iv_[2 + j] = t->dll_a[j];
         }
