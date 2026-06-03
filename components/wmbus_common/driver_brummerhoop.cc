@@ -5,6 +5,8 @@
 namespace
 {
 
+static constexpr size_t MAX_CT = 128;
+
 struct FrameView {
     const uint8_t* dll = nullptr;
     const uint8_t* tpl = nullptr;
@@ -16,36 +18,38 @@ struct FrameView {
 };
 
 /**
- * Robust frame split:
- * NOTE: simplified but stable for trimmed wM-Bus frames
+ * FIXED: works with std::array (no heap vector anymore)
  */
-static bool parseFrame(const std::vector<uint8_t>& f, FrameView& out)
+static bool parseFrame(const std::array<uint8_t, MAX_CT>& f,
+                        size_t len,
+                        FrameView& out)
 {
-    if (f.size() < 16)
+    if (len < 16)
         return false;
 
-    // DLL (very simplified assumption: L + C + M + A)
+    // DLL (simplified but stable for trimmed ESP frames)
     out.dll = f.data();
-    out.dll_len = 1 + 2 + 6; // L + C + M + A (typical)
+    out.dll_len = 1 + 2 + 6;
 
-    if (out.dll_len >= f.size())
+    if (out.dll_len >= len)
         return false;
 
     size_t pos = out.dll_len;
 
-    // TPL starts here
+    // TPL start
     out.tpl = &f[pos];
-    out.tpl_len = f.size() - pos;
+    out.tpl_len = len - pos;
 
-    // Skip minimal TPL header (CI + ACC + STATUS guess = 4 bytes safe baseline)
-    size_t tpl_header = 4;
-    if (pos + tpl_header >= f.size())
+    // conservative TPL header skip (CI + ACC + STATUS guess)
+    constexpr size_t tpl_header = 4;
+
+    if (pos + tpl_header >= len)
         return false;
 
     pos += tpl_header;
 
-    // IMPORTANT FIX: skip OMS padding 0x2F2F
-    while (pos + 1 < f.size() &&
+    // IMPORTANT FIX: remove OMS padding 2F2F
+    while (pos + 1 < len &&
            f[pos] == 0x2F &&
            f[pos + 1] == 0x2F)
     {
@@ -53,25 +57,24 @@ static bool parseFrame(const std::vector<uint8_t>& f, FrameView& out)
     }
 
     out.payload = &f[pos];
-    out.payload_len = f.size() - pos;
+    out.payload_len = len - pos;
 
     return true;
 }
 
+/**
+ * IV builder (wmbusmeters-style)
+ */
 static void buildIV(const uint8_t* dll,
-                     const uint8_t* tpl,
                      uint8_t acc,
                      std::array<uint8_t,16>& iv)
 {
-    // Manufacturer + ID (DLL part)
     iv[0] = dll[1];
     iv[1] = dll[2];
 
-    // A-field (6 bytes)
     for (int i = 0; i < 6; i++)
         iv[2 + i] = dll[3 + i];
 
-    // ACC repeated
     for (int i = 0; i < 8; i++)
         iv[8 + i] = acc;
 }
@@ -90,15 +93,15 @@ struct Driver : public virtual MeterCommonImplementation
     void processContent(Telegram *t) override;
 
 private:
-    static constexpr size_t MAX_CT = 128;
-
     std::array<uint8_t, MAX_CT> last_frame_{};
     size_t last_len_ = 0;
 };
 
+/* registration */
 static bool ok = registerDriver([](DriverInfo &di)
 {
     di.setName("brummerhoop");
+
     di.setMeterType(MeterType::WaterMeter);
     di.setDefaultFields("name,id,total,total_backwards,status,timestamp");
 
@@ -158,7 +161,7 @@ bool Driver::handleTelegram(AboutTelegram &about,
     bool parent_ok = MeterCommonImplementation::handleTelegram(
         about, input_frame, simulated, addresses, id_match, out_analyzed);
 
-    // cache raw frame
+    // cache frame safely
     last_len_ = std::min(input_frame.size(), MAX_CT);
     memcpy(last_frame_.data(), input_frame.data(), last_len_);
 
@@ -176,13 +179,13 @@ void Driver::processContent(Telegram *t)
     ESP_LOGW("APP", "(brummerhoop) AES fallback activated");
 
     FrameView frame;
-    if (!parseFrame(last_frame_, frame))
+    if (!parseFrame(last_frame_, last_len_, frame))
     {
         ESP_LOGE("APP", "(brummerhoop) frame parse failed");
         return;
     }
 
-    // KEY
+    // AES key
     MeterKeys *key_bytes = meterKeys();
     if (!key_bytes || key_bytes->confidentiality_key.size() != 16)
     {
@@ -193,12 +196,11 @@ void Driver::processContent(Telegram *t)
     std::vector<uchar> key_vec(16);
     memcpy(key_vec.data(), key_bytes->confidentiality_key.data(), 16);
 
-    // ACC (FIXED: from tpl, NOT trimmed guess)
+    // ACC from TPL (FIXED)
     uint8_t acc = frame.tpl[1];
 
-    // IV
     std::array<uint8_t,16> iv{};
-    buildIV(frame.dll, frame.tpl, acc, iv);
+    buildIV(frame.dll, acc, iv);
 
     // ciphertext
     size_t ct_len = frame.payload_len;
@@ -220,9 +222,7 @@ void Driver::processContent(Telegram *t)
         iv.data()
     );
 
-    ESP_LOGE("APP", "(brummerhoop) decrypted len=%u", (unsigned)ct_len);
-
-    // DEBUG hex
+    // DEBUG OUTPUT
     std::string hex;
     hex.reserve(ct_len * 2);
 
@@ -235,10 +235,9 @@ void Driver::processContent(Telegram *t)
 
     ESP_LOGE("APP", "(brummerhoop) decrypted=%s", hex.c_str());
 
-    // MARKER PARSE
+    // PARSE VALUES
     for (size_t i = 0; i + 5 < ct_len; i++)
     {
-        // TOTAL (04 13)
         if (decrypted[i] == 0x04 && decrypted[i + 1] == 0x13)
         {
             uint32_t raw =
@@ -250,7 +249,6 @@ void Driver::processContent(Telegram *t)
             setNumericValue("total", Unit::M3, raw / 1000.0);
         }
 
-        // BACK (44 93)
         if (decrypted[i] == 0x44 && decrypted[i + 1] == 0x93)
         {
             uint16_t raw =
