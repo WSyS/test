@@ -266,9 +266,13 @@ void Driver::processContent(Telegram *t)
         return;
     }
 
-    // Skip TPL-CFG (2 bytes: 30 25).
-    size_t ct_start_base = tpl_cfg_pos + 2;
-    if (ct_start_base >= last_frame_len_)
+    // Ciphertext start is not always exactly after TPL-CFG (2 bytes: 30 25).
+    // Start the sweep slightly before and include forward offsets.
+    // We will sweep around this base.
+    // Note: keep it >=0 to avoid underflow in later int arithmetic.
+    int ct_start_base = (int)tpl_cfg_pos - 8; // heuristic: try up to 8 bytes before cfg
+    if (ct_start_base < 0) ct_start_base = 0;
+    if ((size_t)ct_start_base >= last_frame_len_)
         return;
 
     constexpr size_t MAX_CT = 128;
@@ -373,7 +377,8 @@ void Driver::processContent(Telegram *t)
 
     // Offset sweep: ciphertext start may be off by a few bytes depending on
     // how trimmed frames are constructed.
-    constexpr size_t SWEEP_MAX_SHIFT = 16; // try ct_start_base + 0..15
+    // Expand search window.
+    constexpr size_t SWEEP_MAX_SHIFT = 64; // try ct_start_base + 0..63
 
     uint8_t ciphertext_buf[MAX_CT];
     uint8_t decrypted_buf[MAX_CT];
