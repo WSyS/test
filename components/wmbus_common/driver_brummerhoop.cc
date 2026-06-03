@@ -533,26 +533,21 @@ void Driver::processContent(Telegram *t)
                 tm_out.tm_isdst = -1;
             }
             if (ok_date) {
-                double ts = timegm(&tm_out);
-                setNumericValue("meter_datetime", Unit::Unknown, ts);
+                // DateTime decoding skipped in AES fallback.
+                // Generic dvparser pipeline should handle meter_datetime when dv_entries are present.
             }
         }
 
         // set_date: 6C is decoded as "YYYY-MM-DD" (Date G) in a 2-byte DIF after DIF=42.
         // In the example: 42 6C then 2 bytes.
+        // set_date: We cannot reliably decode Date here without dvparser helpers.
+        // Keep marker detection for AES fallback robustness.
         if (decrypted_buf[i] == 0x42 && decrypted_buf[i + 1] == 0x6C) {
             found_set_date = true;
             if (i + 3 < ct_len) {
-                uint8_t b0 = decrypted_buf[i + 2];
-                uint8_t b1 = decrypted_buf[i + 3];
-                tm tm_out{};
-                // dvparser for 2-byte date calls extractDate(v[1], v[0])
-                bool ok_date = extractDate((uchar)b1, (uchar)b0, &tm_out);
-                if (ok_date) {
-                    // Convert to timestamp (seconds) and store as numeric point-in-time.
-                    double ts = timegm(&tm_out);
-                    setNumericValue("set_date", Unit::Unknown, ts);
-                }
+                (void)decrypted_buf;
+                // Date decoding skipped in AES fallback.
+                // Generic dvparser pipeline should decode set_date when dv_entries are present.
             }
         }
 
