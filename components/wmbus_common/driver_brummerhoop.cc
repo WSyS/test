@@ -345,12 +345,14 @@ void Driver::processContent(Telegram *t)
                                safeButUnsafeVectorPtr(key_vec), iv_.data());
 
         // bonus score for 2F2F trailer
+        int score = 0;
         if (ct_len >= 4)
         {
             if (decrypted_buf[ct_len-2] == 0x2F &&
                 decrypted_buf[ct_len-1] == 0x2F)
                 score += 10;
         }
+
 
         // Score how many expected markers exist.
         int score = 0;
