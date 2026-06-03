@@ -275,8 +275,10 @@ void Driver::processContent(Telegram *t)
     if (ct_len_base < 16)
         return;
 
-    // Prefer decrypting exactly 48 bytes when available.
-    constexpr size_t TARGET_CT = 48;
+    // Prefer decrypting 64 bytes when available.
+    // 48 bytes might only contain the backwards total (found) but miss the
+    // forwards total marker DIF/VIF at the beginning of the plaintext.
+    constexpr size_t TARGET_CT = 64;
     size_t ct_len = ct_len_base;
     if (ct_len > TARGET_CT)
         ct_len = TARGET_CT;
