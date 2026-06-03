@@ -29,7 +29,7 @@ static bool ok = registerDriver([](DriverInfo &di)
     di.setName("brummerhoop");
 
     di.setMeterType(MeterType::WaterMeter);
-    di.setDefaultFields("name,id,total,total_backwards_at_set_date_m3,status,timestamp");
+    di.setDefaultFields("name,id,meter_datetime,set_date,consumption_at_set_date_m3,total,total_backwards_at_set_date_m3,status,timestamp");
 
     di.addLinkMode(LinkMode::T1);
     di.addLinkMode(LinkMode::C1);
@@ -168,6 +168,43 @@ Driver::Driver(MeterInfo &mi, DriverInfo &di)
             .set(MeasurementType::Instantaneous)
             .set(VIFRange::AnyVolumeVIF)
             .add(VIFCombinable::BackwardFlow));
+
+    addNumericFieldWithExtractor(
+        "meter_datetime",
+        "The meter date and time (billing readout base).",
+        DEFAULT_PRINT_PROPERTIES,
+        Quantity::PointInTime,
+        VifScaling::Auto,
+        DifSignedness::Signed,
+        FieldMatcher::build()
+            .set(MeasurementType::Instantaneous)
+            .set(VIFRange::DateTime));
+
+    addNumericFieldWithExtractor(
+        "set_date",
+        "The most recent billing period date.",
+        DEFAULT_PRINT_PROPERTIES,
+        Quantity::PointInTime,
+        VifScaling::Auto,
+        DifSignedness::Signed,
+        FieldMatcher::build()
+            .set(MeasurementType::Instantaneous)
+            .set(VIFRange::Date)
+            .set(StorageNr(1)),
+        Unit::DateLT);
+
+    addNumericFieldWithExtractor(
+        "consumption_at_set_date_m3",
+        "The total water consumption at the most recent billing period date.",
+        DEFAULT_PRINT_PROPERTIES,
+        Quantity::Volume,
+        VifScaling::Auto,
+        DifSignedness::Signed,
+        FieldMatcher::build()
+            .set(MeasurementType::Instantaneous)
+            .set(VIFRange::Volume)
+            .set(StorageNr(1)));
+
 }
 
 void Driver::processContent(Telegram *t)
@@ -195,7 +232,8 @@ void Driver::processContent(Telegram *t)
         return;
 
 
-
+    debug("(brummerhoop) rssi=%d",
+          t->about.rssi_dbm);
 
     // AES key derivation:
     // Only accept the YAML configured confidentiality_key.
@@ -317,6 +355,7 @@ void Driver::processContent(Telegram *t)
     // If not found, keep ACC=0 (worst case: first block wrong).
 
     uint8_t acc = 0;
+
     for (size_t p = 0; p + 2 < last_frame_len_; ++p) {
         // Potential TPL CI values for short header are typically 0x7A/0x78/0x79/0x72.
         if (last_frame_bytes_[p] == 0x7A || last_frame_bytes_[p] == 0x72 ||
@@ -382,6 +421,12 @@ void Driver::processContent(Telegram *t)
                 score += 3;
             if (decrypted_buf[i] == 0x44 && decrypted_buf[i + 1] == 0x93)
                 score += 2;
+            if (decrypted_buf[i] == 0x04 && decrypted_buf[i + 1] == 0x6D)
+                score += 2;
+            if (decrypted_buf[i] == 0x42 && decrypted_buf[i + 1] == 0x6C)
+                score += 2;
+            if (decrypted_buf[i] == 0x04 && decrypted_buf[i + 1] == 0x13)
+                score += 1;
         }
 
         if (score > best_score) {
@@ -429,13 +474,101 @@ void Driver::processContent(Telegram *t)
                  (unsigned)ct_len, dhx.c_str());
     }
 
-    // Scan for DIF/VIF markers 04 13 and 44 93.
+    // Scan for DIF/VIF markers.
 
     bool found_total = false;
-
+    bool found_meter_datetime = false;
+    bool found_set_date = false;
+    bool found_consumption_at_set_date = false;
 
     bool found_back = false;
+
     for (size_t i = 0; i + 5 < ct_len; ++i) {
+        // meter_datetime: 6D (VIFDateTime) is decoded as a 4-byte DV after DIF=04.
+        if (decrypted_buf[i] == 0x04 && decrypted_buf[i + 1] == 0x6D) {
+            found_meter_datetime = true;
+            // Payload as per your example: "meter_datetime":"2026-06-03 23:24"
+            // Decode uses the same DV date extraction layout as dvparser:
+            // - 4 bytes: YYYY MMMM? + YYY DDDDD?? time bits are encoded in the last byte nibble.
+            // Here we only extract the human-readable fields directly from the example format:
+            // bytes: [b0 b1 b2 b3] little-endian in the DV hex, so treat as big-endian order used by dvparser.
+            uint8_t b0 = decrypted_buf[i + 2];
+            uint8_t b1 = decrypted_buf[i + 3];
+            uint8_t b2 = decrypted_buf[i + 4];
+            uint8_t b3 = decrypted_buf[i + 5];
+            // Best-effort: dvparser's extractDate/extractTime expects hi/lo ordering.
+            // For consistency with dvparser's DVEntry::extractDate for 4-byte values:
+            // it calls extractDate(v[3], v[2]) and extractTime(v[1], v[0]).
+            // Therefore map our decrypted bytes so that v[0]=b0, v[1]=b1, v[2]=b2, v[3]=b3.
+            // DateTime encoding in your telegram extract (VIF 6D):
+            // byte[0..3] contain date+time fields packed similarly to dvparser's
+            // extractDate(hi,lo) and extractTime(hi,lo) used for 4-byte DV dates.
+            // dvparser's DVEntry::extractDate for v.size()==4 does:
+            //   extractDate(v[3], v[2]);
+            //   extractTime(v[1], v[0]);
+            tm tm_out{};
+            // dvparser helpers are TU-local in dvparser.cc, so we re-decode using
+            // the same bit layouts as extractDate/extractTime.
+            // extractDate(hi,lo):
+            //   day = lo & 0x1f
+            //   month = hi & 0x0f
+            //   year1 = (lo & 0xe0) >> 5
+            //   year2 = (hi & 0xf0) >> 1
+            int day = (b1) & 0x1f;
+            int year1 = ((b1) & 0xe0) >> 5;
+            int month = (b2) & 0x0f;
+            int year2 = ((b2) & 0xf0) >> 1;
+            int year = 2000 + year1 + year2;
+
+            int min = (b0) & 0x3f;
+            int hour = (b3) & 0x1f;
+
+            bool ok_date = (month <= 12) && (min <= 59) && (hour <= 23);
+            if (ok_date) {
+                tm_out.tm_mday = day;
+                tm_out.tm_mon = month - 1;
+                tm_out.tm_year = year - 1900;
+                tm_out.tm_min = min;
+                tm_out.tm_hour = hour;
+                tm_out.tm_isdst = -1;
+            }
+            if (ok_date) {
+                double ts = timegm(&tm_out);
+                setNumericValue("meter_datetime", Unit::Unknown, ts);
+            }
+        }
+
+        // set_date: 6C is decoded as "YYYY-MM-DD" (Date G) in a 2-byte DIF after DIF=42.
+        // In the example: 42 6C then 2 bytes.
+        if (decrypted_buf[i] == 0x42 && decrypted_buf[i + 1] == 0x6C) {
+            found_set_date = true;
+            if (i + 3 < ct_len) {
+                uint8_t b0 = decrypted_buf[i + 2];
+                uint8_t b1 = decrypted_buf[i + 3];
+                tm tm_out{};
+                // dvparser for 2-byte date calls extractDate(v[1], v[0])
+                bool ok_date = extractDate((uchar)b1, (uchar)b0, &tm_out);
+                if (ok_date) {
+                    // Convert to timestamp (seconds) and store as numeric point-in-time.
+                    double ts = timegm(&tm_out);
+                    setNumericValue("set_date", Unit::Unknown, ts);
+                }
+            }
+        }
+
+        // consumption_at_set_date_m3: 40 13 (volume) followed by 4 bytes.
+        if (decrypted_buf[i] == 0x40 && decrypted_buf[i + 1] == 0x13) {
+            found_consumption_at_set_date = true;
+            if (i + 6 < ct_len) {
+                uint32_t raw = decrypted_buf[i + 2] |
+                                 (uint32_t(decrypted_buf[i + 3]) << 8) |
+                                 (uint32_t(decrypted_buf[i + 4]) << 16) |
+                                 (uint32_t(decrypted_buf[i + 5]) << 24);
+                double v_m3 = raw / 1000.0;
+                setNumericValue("consumption_at_set_date_m3", Unit::M3, v_m3);
+            }
+        }
+
         if (decrypted_buf[i] == 0x04 && decrypted_buf[i + 1] == 0x13) {
             found_total = true;
             uint32_t raw = decrypted_buf[i + 2] |
@@ -476,6 +609,7 @@ void Driver::processContent(Telegram *t)
 }
 
 } // namespace
+
 
 
 
