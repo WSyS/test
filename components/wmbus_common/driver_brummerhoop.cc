@@ -355,7 +355,6 @@ void Driver::processContent(Telegram *t)
 
 
         // Score how many expected markers exist.
-        int score = 0;
         for (size_t i = 0; i + 5 < ct_len; ++i) {
             if (decrypted_buf[i] == 0x04 && decrypted_buf[i + 1] == 0x13)
                 score += 3;
