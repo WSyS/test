@@ -179,6 +179,7 @@ Driver::Driver(MeterInfo &mi, DriverInfo &di)
 
 void Driver::processContent(Telegram *t)
 {
+    // Definitive safety: the AES fallback must never dereference t when it is NULL.
     if (t == NULL)
         return;
 
@@ -190,11 +191,10 @@ void Driver::processContent(Telegram *t)
         return;
     }
 
-
-
     // Fallback: brute-force AES-CBC decode of the encrypted user data.
     // Only activate when dv_entries are empty (as requested).
     ESP_LOGW("APP", "(brummerhoop) fallback activated: dv_entries empty");
+
 
     ESP_LOGI("APP", "(brummerhoop) AES fallback debug: last_frame_len_=%u", (unsigned)last_frame_len_);
     if (last_frame_len_ < 32)
