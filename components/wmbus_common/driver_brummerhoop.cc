@@ -266,13 +266,10 @@ void Driver::processContent(Telegram *t)
         return;
     }
 
-    // Ciphertext start is not always exactly after TPL-CFG (2 bytes: 30 25).
-    // Start the sweep slightly before and include forward offsets.
-    // We will sweep around this base.
-    // Note: keep it >=0 to avoid underflow in later int arithmetic.
-    int ct_start_base = (int)tpl_cfg_pos - 8; // heuristic: try up to 8 bytes before cfg
-    if (ct_start_base < 0) ct_start_base = 0;
-    if ((size_t)ct_start_base >= last_frame_len_)
+    // OMS AES-CBC payload starts directly after TPL-CFG (30 25)
+    size_t ct_start_base = tpl_cfg_pos + 2;
+
+    if (ct_start_base >= last_frame_len_)
         return;
 
     constexpr size_t MAX_CT = 128;
@@ -292,8 +289,9 @@ void Driver::processContent(Telegram *t)
     if (ct_len > TARGET_CT)
         ct_len = TARGET_CT;
 
-    // IV: we will build it from already parsed Telegram fields.
-    // (Old code tried to derive ACC from raw bytes; that was unreliable.)
+    // Build IV directly from raw telegram bytes.
+    // Format:
+    // M-field(2) + A-field(6) + ACC repeated 8 times
     std::array<uint8_t, 16> iv_{};
 
 
@@ -302,69 +300,19 @@ void Driver::processContent(Telegram *t)
         return;
     }
 
-    // IV fields following decrypt_TPL_AES_CBC_IV() in wmbus_utils.cc:
-    // - If tpl_id_found: use TPL M-field + TPL A-field, else use DLL equivalents.
-    // - ACC is repeated 8x.
-    //
-    // We intentionally do not reconstruct these bytes from last_frame_bytes_
-    // because that is offset-sensitive.
+    // Manufacturer
+    iv_[0] = last_frame_bytes_[1];
+    iv_[1] = last_frame_bytes_[2];
 
-    // Build IV only if we have a sane set of fields.
-    // Fallback can be invoked in situations where TPL fields are not fully
-    // populated.
-    if (t->tpl_id_found) {
-        if (t->tpl_mfct_b[0] == 0 && t->tpl_mfct_b[1] == 0) {
-            ESP_LOGE("APP", "(brummerhoop) AES fallback: tpl_id_found but tpl_mfct_b invalid, aborting");
-            return;
-        }
-        // M-field (2 bytes)
-        iv_[0] = t->tpl_mfct_b[0];
-        iv_[1] = t->tpl_mfct_b[1];
+    // Address field
+    for (int j = 0; j < 6; ++j)
+        iv_[2 + j] = last_frame_bytes_[3 + j];
 
-        // A-field (6 bytes)
-        if (t->tpl_a.size() < 6) {
-            ESP_LOGE("APP", "(brummerhoop) AES fallback: tpl_a invalid (size=%u)", (unsigned)t->tpl_a.size());
-            return;
-        }
-        for (int j = 0; j < 6; ++j) {
-            iv_[2 + j] = t->tpl_a[j];
-        }
+    // Access number
+    uint8_t acc = last_frame_bytes_[13];
 
-        // ACC
-        for (int j = 0; j < 8; ++j) {
-            iv_[8 + j] = t->tpl_acc;
-        }
-    } else {
-        // M-field (2 bytes)
-        iv_[0] = t->dll_mfct_b[0];
-        iv_[1] = t->dll_mfct_b[1];
-
-        // A-field (6 bytes)
-        // If t->dll_a is not available (size < 6), reconstruct it from the
-        // trimmed frame around the TPL-CFG marker position.
-        if (t->dll_a.size() < 6) {
-            // Empiric rule for this brummerhoop telegram layout:
-            // dll_a is 6 bytes located 10 bytes before tpl_cfg_pos.
-            // Example (from your log):
-            //   tpl_cfg_pos=16 => dll_a_guess = last_frame[6..11] = 78 C2 06 07 A9 D0
-            if (tpl_cfg_pos < 10) {
-                ESP_LOGE("APP", "(brummerhoop) AES fallback: cannot reconstruct dll_a (tpl_cfg_pos=%u)", (unsigned)tpl_cfg_pos);
-                return;
-            }
-            for (int j = 0; j < 6; ++j) {
-                iv_[2 + j] = last_frame_bytes_[tpl_cfg_pos - 10 + j];
-            }
-        } else {
-            for (int j = 0; j < 6; ++j) {
-                iv_[2 + j] = t->dll_a[j];
-            }
-        }
-
-        // ACC repeated 8x
-        for (int j = 0; j < 8; ++j) {
-            iv_[8 + j] = t->tpl_acc;
-        }
-    }
+    for (int j = 0; j < 8; ++j)
+        iv_[8 + j] = acc;
 
 
     char iv_hex[33];
@@ -372,13 +320,13 @@ void Driver::processContent(Telegram *t)
         sprintf(&iv_hex[i * 2], "%02X", iv_[i]);
     iv_hex[32] = '\0';
 
-    ESP_LOGE("APP", "(brummerhoop) AES fallback using Telegram-derived IV=%s", iv_hex);
+    ESP_LOGE("APP", "(brummerhoop) AES fallback using raw-frame IV=%s", iv_hex);
 
 
     // Offset sweep: ciphertext start may be off by a few bytes depending on
     // how trimmed frames are constructed.
     // Expand search window.
-    constexpr size_t SWEEP_MAX_SHIFT = 64; // try ct_start_base + 0..63
+    constexpr size_t SWEEP_MAX_SHIFT = 8;
 
     uint8_t ciphertext_buf[MAX_CT];
     uint8_t decrypted_buf[MAX_CT];
@@ -395,6 +343,14 @@ void Driver::processContent(Telegram *t)
 
         AES_CBC_decrypt_buffer(decrypted_buf, ciphertext_buf, (uint32_t)ct_len,
                                safeButUnsafeVectorPtr(key_vec), iv_.data());
+
+        // bonus score for 2F2F trailer
+        if (ct_len >= 4)
+        {
+            if (decrypted_buf[ct_len-2] == 0x2F &&
+                decrypted_buf[ct_len-1] == 0x2F)
+                score += 10;
+        }
 
         // Score how many expected markers exist.
         int score = 0;
