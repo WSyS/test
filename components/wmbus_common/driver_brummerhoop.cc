@@ -29,7 +29,7 @@ static bool ok = registerDriver([](DriverInfo &di)
     di.setName("brummerhoop");
 
     di.setMeterType(MeterType::WaterMeter);
-    di.setDefaultFields("name,id,meter_datetime,set_date,consumption_at_set_date_m3,total,total_backwards_at_set_date_m3,status");
+    di.setDefaultFields("name,id,meter_datetime,set_date,consumption_at_set_date_m3,total,total_backwards_at_set_date_m3,status,rssi");
 
     di.addLinkMode(LinkMode::T1);
     di.addLinkMode(LinkMode::C1);
@@ -232,7 +232,7 @@ void Driver::processContent(Telegram *t)
         return;
 
 
-    debug("(brummerhoop) rssi=%d",
+    ESP_LOGI("APP", "(brummerhoop) rssi=%d",
           t->about.rssi_dbm);
 
     // AES key derivation:
