@@ -115,9 +115,14 @@ optional<std::string> Meter::get_string_field(std::string field_name) {
 }
 
 optional<float> Meter::get_numeric_field(std::string field_name) {
-  // RSSI is not handled by meter but by telegram :/
-  if (field_name == "rssi_dbm")
-    return this->last_telegram->about.rssi_dbm;
+  // RSSI is not part of the decoded meter payload.
+  // It is provided by the radio/Frame and cached in last_rssi_dbm_.
+  if (field_name == "rssi_dbm") {
+    if (this->last_rssi_dbm_.has_value())
+      return (float)*this->last_rssi_dbm_;
+    return 0;
+  }
+
 
   if (field_name == "timestamp")
     return this->meter->timestampLastUpdate();
