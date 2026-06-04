@@ -29,7 +29,7 @@ static bool ok = registerDriver([](DriverInfo &di)
     di.setName("brummerhoop");
 
     di.setMeterType(MeterType::WaterMeter);
-    di.setDefaultFields("name,id,meter_datetime,set_date,consumption_at_set_date_m3,total,total_backwards_at_set_date_m3,status,rssi");
+    di.setDefaultFields("name,id,meter_datetime,set_date,consumption_at_set_date_m3,total,total_backwards_at_set_date_m3,status");
 
     di.addLinkMode(LinkMode::T1);
     di.addLinkMode(LinkMode::C1);
