@@ -71,8 +71,11 @@ void Meter::handle_frame(wmbus_radio::Frame *frame) {
     this->last_telegram = std::move(telegram);
     this->last_rssi_dbm_ = frame->rssi();
 
-    ESP_LOGD(TAG, "handle_frame after move: about.rssi_dbm=%f last_rssi_dbm_=%d",
-             (double)this->last_telegram->about.rssi_dbm, this->last_rssi_dbm_);
+    auto rssi_opt = this->last_telegram->about.rssi_dbm;
+    ESP_LOGD(TAG,
+             "handle_frame after move: about.rssi_dbm=%s last_rssi_dbm_=%d",
+             rssi_opt ? "set" : "null", (int)this->last_rssi_dbm_);
+
 
     this->defer([this]() {
       this->on_telegram_callback_manager();
