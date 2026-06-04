@@ -74,7 +74,8 @@ void Meter::handle_frame(wmbus_radio::Frame *frame) {
     auto rssi_opt = this->last_telegram->about.rssi_dbm;
     ESP_LOGD(TAG,
              "handle_frame after move: about.rssi_dbm=%s last_rssi_dbm_=%d",
-             rssi_opt ? "set" : "null", (int)this->last_rssi_dbm_);
+             rssi_opt ? "set" : "null", this->last_rssi_dbm_ ? *this->last_rssi_dbm_ : 0);
+
 
 
     this->defer([this]() {
