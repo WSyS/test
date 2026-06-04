@@ -63,32 +63,14 @@ void Meter::handle_frame(wmbus_radio::Frame *frame) {
                               telegram.get());
 
   if (id_match) {
-    ESP_LOGD(TAG,
-             "handle_frame id_match=true link=%s frame_rssi=%d last_telegram_valid=%d",
-             toString(frame->link_mode()), frame->rssi(),
-             telegram ? 1 : 0);
-
     this->last_telegram = std::move(telegram);
     this->last_rssi_dbm_ = frame->rssi();
-
-    auto rssi_opt = this->last_telegram->about.rssi_dbm;
-    ESP_LOGD(TAG,
-             "handle_frame after move: about.rssi_dbm=%s last_rssi_dbm_=%d",
-             rssi_opt ? "set" : "null", this->last_rssi_dbm_ ? *this->last_rssi_dbm_ : 0);
-
-
-
     this->defer([this]() {
       this->on_telegram_callback_manager();
       this->last_telegram = nullptr;
     });
 
     frame->mark_as_handled();
-  }
-
-  if (!id_match) {
-    ESP_LOGD(TAG, "handle_frame id_match=false link=%s frame_rssi=%d",
-             toString(frame->link_mode()), frame->rssi());
   }
 }
 
